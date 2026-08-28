@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>ORCA - Marine Intelligence Assistant</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  * { box-sizing: border-box; font-family: -apple-system, Segoe UI, Roboto, sans-serif; }
+  body { margin: 0; display: flex; height: 100vh; background: #0d1b2a; }
+  #chat-panel { width: 420px; display: flex; flex-direction: column; background: #f5f7fa; }
+  #header { padding: 16px; background: #0d3b66; color: white; }
+  #header h1 { margin: 0; font-size: 18px; }
+  #header p { margin: 4px 0 0; font-size: 13px; opacity: 0.8; }
+  #messages { flex: 1; overflow-y: auto; padding: 16px; }
+  .msg { margin-bottom: 12px; padding: 10px 14px; border-radius: 10px; max-width: 90%; font-size: 14px; line-height: 1.4; }
+  .msg.user { background: #0d3b66; color: white; margin-left: auto; }
+  .msg.bot { background: white; border: 1px solid #ddd; }
+  .risk-tag { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 12px; font-weight: bold; margin-bottom: 6px; }
+  .risk-safe { background: #d4edda; color: #155724; }
+  .risk-caution { background: #fff3cd; color: #856404; }
+  .risk-unsafe { background: #f8d7da; color: #721c24; }
+  #input-row { display: flex; padding: 12px; border-top: 1px solid #ddd; background: white; }
+  #query-input { flex: 1; padding: 10px; border: 1px solid #ccc; border-radius: 6px; font-size: 14px; }
+  #send-btn { margin-left: 8px; padding: 10px 18px; background: #0d3b66; color: white; border: none; border-radius: 6px; cursor: pointer; }
+  #send-btn:hover { background: #0a2d4d; }
+  #map { flex: 1; }
+  .examples { padding: 0 16px 12px; font-size: 12px; color: #666; }
+  .examples button { display: block; width: 100%; text-align: left; background: none; border: none; color: #0d3b66; padding: 4px 0; cursor: pointer; font-size: 12px; }
+</style>
+</head>
+<body>
+
+<div id="chat-panel">
+  <div id="header">
+    <h1>ORCA</h1>
+    <p>Marine Intelligence Assistant (prototype - demo data)</p>
+  </div>
+  <div id="messages"></div>
+  <div class="examples">
+    Try: 
+    <button onclick="askExample('Is it safe to fish tomorrow near Kochi?')">Is it safe to fish tomorrow near Kochi?</button>
+    <button onclick="askExample('Should I go to sea near Chennai today?')">Should I go to sea near Chennai today?</button>
+    <button onclick="askExample('What are the conditions near Visakhapatnam?')">What are the conditions near Visakhapatnam?</button>
+  </div>
+  <div id="input-row">
+    <input id="query-input" type="text" placeholder="Ask about fishing safety, e.g. Kochi..." onkeydown="if(event.key==='Enter') sendQuery()">
+    <button id="send-btn" onclick="sendQuery()">Ask</button>
+  </div>
+</div>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+  const API_URL = "http://localhost:8000/ask";
+
+  // View is locked to south/central India (where all demo locations are)
+  // so the map never scrolls up to the Kashmir region, whose boundary
+  // rendering differs between global map providers and India's official map.
+  const southIndiaBounds = L.latLngBounds([5, 70], [21, 90]);
+
+  const map = L.map('map', {
+    maxBounds: southIndiaBounds,
+    maxBoundsViscosity: 1.0,
+    minZoom: 6
+  }).setView([13, 79], 6);
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(map);
+
+  let markers = [];
+
+  function clearMarkers() {
+    markers.forEach(m => map.removeLayer(m));
+    markers = [];
+  }
+
+  function addMessage(text, sender, riskLevel) {
+    const messages = document.getElementById('messages');
+    const div = document.createElement('div');
+    div.className = 'msg ' + sender;
+    if (riskLevel) {
+      const tag = document.createElement('div');
+      tag.className = 'risk-tag risk-' + riskLevel;
+      tag.textContent = riskLevel.toUpperCase();
+      div.appendChild(tag);
+      div.appendChild(document.createElement('br'));
+    }
+    div.appendChild(document.createTextNode(text));
+    messages.appendChild(div);
+    messages.scrollTop = messages.scrollHeight;
+  }
+
+  function askExample(text) {
+    document.getElementById('query-input').value = text;
+    sendQuery();
+  }
+
+  async function sendQuery() {
+    const input = document.getElementById('query-input');
+    const query = input.value.trim();
+    if (!query) return;
+
+    addMessage(query, 'user');
+    input.value = '';
+
+    try {
+      const res = await fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query })
+      });
+      const data = await res.json();
+
+      if (data.error) {
+        addMessage(data.answer, 'bot');
+        return;
+      }
+
+      addMessage(data.answer, 'bot', data.risk_level);
+
+      clearMarkers();
+      const userLoc = data.map.user_location;
+      const pfz = data.map.nearest_pfz;
+
+      const userMarker = L.marker([userLoc.lat, userLoc.lon])
+        .addTo(map)
+        .bindPopup(`<b>${data.map.location_name}</b>`);
+      const pfzMarker = L.marker([pfz.lat, pfz.lon])
+        .addTo(map)
+        .bindPopup(`<b>${pfz.name}</b><br>${pfz.distance_km} km away`);
+
+      markers.push(userMarker, pfzMarker);
+      map.setView([userLoc.lat, userLoc.lon], 8);
+
+    } catch (err) {
+      addMessage("Could not reach the backend. Is it running on localhost:8000?", 'bot');
+    }
+  }
+</script>
+
+</body>
+</html>

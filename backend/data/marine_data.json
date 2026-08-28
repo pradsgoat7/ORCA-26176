@@ -1,0 +1,56 @@
+{
+  "locations": {
+    "kochi": {
+      "name": "Kochi",
+      "lat": 9.9312,
+      "lon": 76.2673,
+      "sea_surface_temp_c": 28.4,
+      "chlorophyll_mg_m3": 1.8,
+      "wind_speed_kmph": 22,
+      "wave_height_m": 1.4,
+      "cyclone_alert": false,
+      "lightning_alert": false,
+      "nearest_pfz": {
+        "name": "PFZ near Kochi coast",
+        "lat": 9.75,
+        "lon": 75.95,
+        "distance_km": 28
+      }
+    },
+    "chennai": {
+      "name": "Chennai",
+      "lat": 13.0827,
+      "lon": 80.2707,
+      "sea_surface_temp_c": 29.6,
+      "chlorophyll_mg_m3": 0.9,
+      "wind_speed_kmph": 38,
+      "wave_height_m": 2.6,
+      "cyclone_alert": true,
+      "cyclone_name": "Cyclone Test-Alpha (demo)",
+      "lightning_alert": true,
+      "nearest_pfz": {
+        "name": "PFZ near Chennai coast",
+        "lat": 13.2,
+        "lon": 80.45,
+        "distance_km": 42
+      }
+    },
+    "visakhapatnam": {
+      "name": "Visakhapatnam",
+      "lat": 17.6868,
+      "lon": 83.2185,
+      "sea_surface_temp_c": 27.9,
+      "chlorophyll_mg_m3": 2.3,
+      "wind_speed_kmph": 15,
+      "wave_height_m": 0.9,
+      "cyclone_alert": false,
+      "lightning_alert": false,
+      "nearest_pfz": {
+        "name": "PFZ near Visakhapatnam coast",
+        "lat": 17.9,
+        "lon": 83.4,
+        "distance_km": 19
+      }
+    }
+  }
+}

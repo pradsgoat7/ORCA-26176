@@ -10,6 +10,9 @@ import os
 from pathlib import Path
 from typing import TypedDict, Optional
 
+from dotenv import load_dotenv
+load_dotenv()  # reads the .env file in the backend folder and loads it into os.environ
+
 from langgraph.graph import StateGraph, END
 
 DATA_PATH = Path(__file__).parent / "data" / "marine_data.json"
@@ -130,7 +133,7 @@ def synthesis_agent(state: ORCAState) -> ORCAState:
     if state.get("error"):
         return {**state, "answer": f"Sorry, {state['error']} Try mentioning a coastal town like Kochi, Chennai, or Visakhapatnam."}
 
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    api_key = os.environ.get("GOOGLE_API_KEY")
 
     if not api_key:
         # Rule-based fallback so the demo never breaks without a key
@@ -145,8 +148,7 @@ def synthesis_agent(state: ORCAState) -> ORCAState:
         return {**state, "answer": answer}
 
     try:
-        import anthropic
-        client = anthropic.Anthropic(api_key=api_key)
+        import requests
 
         prompt = f"""You are a marine safety assistant for fishermen. Based on this data, write a short,
 clear, friendly answer (3-4 sentences) to the user's question. Mention the safety verdict,
@@ -159,12 +161,23 @@ Ocean conditions: {state['ocean']}
 Risk assessment: {state['risk']}
 Nearest fishing zone: {state['geospatial']['nearest_pfz']}
 """
-        response = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=300,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        answer = response.content[0].text
+
+        url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent"
+        headers = {"x-goog-api-key": api_key, "Content-Type": "application/json"}
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {
+                "thinkingConfig": {"thinkingLevel": "low"},  # keeps latency low for a live demo
+                "maxOutputTokens": 1024,
+            },
+        }
+        # Hard timeout: if the API is ever slow, fail fast into the instant
+        # rule-based fallback below rather than making the user stare at a
+        # spinner for 40+ seconds during the live pitch.
+        resp = requests.post(url, headers=headers, json=payload, timeout=20)
+        resp.raise_for_status()
+        data = resp.json()
+        answer = data["candidates"][0]["content"]["parts"][0]["text"]
         return {**state, "answer": answer}
     except Exception as e:
         # Never let an API hiccup kill the live demo

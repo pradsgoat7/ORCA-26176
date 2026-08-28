@@ -47,15 +47,15 @@ def planner_agent(state: ORCAState) -> ORCAState:
             break
 
     if not matched:
-        return {**state, "error": "Could not identify a known location in the query."}
+        return {"error": "Could not identify a known location in the query."}
 
-    return {**state, "location_key": matched, "location_data": MARINE_DATA[matched]}
+    return {"location_key": matched, "location_data": MARINE_DATA[matched]}
 
 
 # ---------- Weather agent ----------
 def weather_agent(state: ORCAState) -> ORCAState:
     if state.get("error"):
-        return state
+        return {}
     loc = state["location_data"]
     weather = {
         "wind_speed_kmph": loc["wind_speed_kmph"],
@@ -63,26 +63,26 @@ def weather_agent(state: ORCAState) -> ORCAState:
         "cyclone_name": loc.get("cyclone_name"),
         "lightning_alert": loc["lightning_alert"],
     }
-    return {**state, "weather": weather}
+    return {"weather": weather}
 
 
 # ---------- Ocean agent ----------
 def ocean_agent(state: ORCAState) -> ORCAState:
     if state.get("error"):
-        return state
+        return {}
     loc = state["location_data"]
     ocean = {
         "sea_surface_temp_c": loc["sea_surface_temp_c"],
         "chlorophyll_mg_m3": loc["chlorophyll_mg_m3"],
         "wave_height_m": loc["wave_height_m"],
     }
-    return {**state, "ocean": ocean}
+    return {"ocean": ocean}
 
 
 # ---------- Risk agent ----------
 def risk_agent(state: ORCAState) -> ORCAState:
     if state.get("error"):
-        return state
+        return {}
     weather = state["weather"]
     ocean = state["ocean"]
 
@@ -112,26 +112,26 @@ def risk_agent(state: ORCAState) -> ORCAState:
     if not reasons:
         reasons.append("No significant hazards detected")
 
-    return {**state, "risk": {"level": level, "score": score, "reasons": reasons}}
+    return {"risk": {"level": level, "score": score, "reasons": reasons}}
 
 
 # ---------- Geospatial agent ----------
 def geospatial_agent(state: ORCAState) -> ORCAState:
     if state.get("error"):
-        return state
+        return {}
     loc = state["location_data"]
     geo = {
         "location_name": loc["name"],
         "location_coords": {"lat": loc["lat"], "lon": loc["lon"]},
         "nearest_pfz": loc["nearest_pfz"],
     }
-    return {**state, "geospatial": geo}
+    return {"geospatial": geo}
 
 
 # ---------- Synthesis agent (LLM-powered, with a safe fallback) ----------
 def synthesis_agent(state: ORCAState) -> ORCAState:
     if state.get("error"):
-        return {**state, "answer": f"Sorry, {state['error']} Try mentioning a coastal town like Kochi, Chennai, or Visakhapatnam."}
+        return {"answer": f"Sorry, {state['error']} Try mentioning a coastal town like Kochi, Chennai, or Visakhapatnam."}
 
     api_key = os.environ.get("GOOGLE_API_KEY")
 
@@ -174,7 +174,7 @@ Nearest fishing zone: {state['geospatial']['nearest_pfz']}
         # Hard timeout: if the API is ever slow, fail fast into the instant
         # rule-based fallback below rather than making the user stare at a
         # spinner for 40+ seconds during the live pitch.
-        resp = requests.post(url, headers=headers, json=payload, timeout=20)
+        resp = requests.post(url, headers=headers, json=payload, timeout=30)
         resp.raise_for_status()
         data = resp.json()
         answer = data["candidates"][0]["content"]["parts"][0]["text"]
@@ -202,11 +202,22 @@ def build_graph():
     graph.add_node("synthesis_node", synthesis_agent)
 
     graph.set_entry_point("planner_node")
+
+    # Fan-out: the Planner dispatches to all three specialist agents at once,
+    # each running independently off the Planner's output.
     graph.add_edge("planner_node", "weather_node")
-    graph.add_edge("weather_node", "ocean_node")
+    graph.add_edge("planner_node", "ocean_node")
+    graph.add_edge("planner_node", "geospatial_node")
+
+    # Risk agent acts as the sync point: it only reasons over weather+ocean
+    # data, but waiting on all three edges (including geospatial) means it
+    # only fires once every specialist has genuinely finished - avoiding a
+    # race where Synthesis could start before every agent has reported back.
+    graph.add_edge("weather_node", "risk_node")
     graph.add_edge("ocean_node", "risk_node")
-    graph.add_edge("risk_node", "geospatial_node")
-    graph.add_edge("geospatial_node", "synthesis_node")
+    graph.add_edge("geospatial_node", "risk_node")
+
+    graph.add_edge("risk_node", "synthesis_node")
     graph.add_edge("synthesis_node", END)
 
     return graph.compile()

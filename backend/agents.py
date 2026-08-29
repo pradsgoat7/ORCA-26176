@@ -437,11 +437,14 @@ def risk_agent(state: ORCAState) -> ORCAState:
     if not reasons:
         reasons.append("No significant hazards detected")
 
-    # Phase 2 addition: deterministic metrics/reasons in the new structured
-    # contract, computed independently of the legacy score above. Added
-    # alongside the existing level/score/reasons - nothing existing changes,
-    # so the frontend, fallback templates, and API keep working unmodified.
-    structured = calculate_all_metrics(weather, ocean)
+    # Phase 2/3 addition: deterministic structured metrics + stakeholder-
+    # weighted overall score, computed independently of the legacy score
+    # above. Added alongside the existing level/score/reasons - nothing
+    # existing changes, so the frontend, fallback templates, and API keep
+    # working unmodified.
+    stakeholder_info = state.get("stakeholder") or {}
+    stakeholder_type = stakeholder_info.get("type", "general")
+    structured = calculate_all_metrics(weather, ocean, stakeholder_type)
 
     return {
         "risk": {
@@ -450,6 +453,9 @@ def risk_agent(state: ORCAState) -> ORCAState:
             "reasons": reasons,
             "metrics": structured["metrics"],
             "structured_reasons": structured["reasons"],
+            "overall_score": structured["overall_score"],
+            "overall_level": structured["overall_level"],
+            "recommendation": structured["recommendation"],
         }
     }
 

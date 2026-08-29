@@ -79,12 +79,11 @@ def calculate_lightning_risk(lightning_alert: bool) -> dict:
 
 # ---------- Combine into the structured metrics + reasons contract ----------
 
-def calculate_all_metrics(weather: dict, ocean: dict) -> dict:
+def calculate_all_metrics(weather: dict, ocean: dict, stakeholder_type: str = "general") -> dict:
     """Takes the existing weather/ocean dicts ORCA already produces (live
     or mock, doesn't matter - this function only cares about the values)
-    and returns the four deterministic risk metrics plus structured
-    reasons, ready for Phase 3 to combine into a stakeholder-weighted
-    overall score."""
+    and returns the four deterministic risk metrics, structured reasons,
+    AND the stakeholder-weighted overall score/level/recommendation."""
     weather = weather or {}
     ocean = ocean or {}
 
@@ -118,4 +117,87 @@ def calculate_all_metrics(weather: dict, ocean: dict) -> dict:
     if not reasons:
         reasons = [{"factor": "Overall", "score": 0, "reason": "No significant hazards detected."}]
 
-    return {"metrics": metrics, "reasons": reasons, "raw_scores": {k: v["score"] for k, v in raw.items()}}
+    raw_scores = {k: v["score"] for k, v in raw.items()}
+    overall = calculate_overall_risk(raw_scores, stakeholder_type)
+
+    return {
+        "metrics": metrics,
+        "reasons": reasons,
+        "raw_scores": raw_scores,
+        "overall_score": overall["overall_score"],
+        "overall_level": overall["overall_level"],
+        "recommendation": overall["recommendation"],
+    }
+
+
+# ---------- Phase 3: stakeholder-weighted overall score ----------
+
+# Weights per stakeholder - each set sums to 1.0. Chosen per the spec's
+# own guidance (fisherman leans wave/wind/cyclone; disaster management
+# leans cyclone/regional hazard); coast_guard sits between the two,
+# reflecting broader operational/vessel-safety concern across all hazards.
+STAKEHOLDER_WEIGHTS = {
+    "fisherman": {"wave_risk": 0.35, "wind_risk": 0.25, "cyclone_risk": 0.30, "lightning_risk": 0.10},
+    "coast_guard": {"wave_risk": 0.30, "wind_risk": 0.25, "cyclone_risk": 0.30, "lightning_risk": 0.15},
+    "disaster_management": {"wave_risk": 0.15, "wind_risk": 0.25, "cyclone_risk": 0.40, "lightning_risk": 0.20},
+    "general": {"wave_risk": 0.25, "wind_risk": 0.25, "cyclone_risk": 0.25, "lightning_risk": 0.25},
+}
+
+RECOMMENDATIONS = {
+    "fisherman": {
+        "LOW": "Conditions are currently suitable for fishing. Normal precautions are advised.",
+        "MODERATE": "Exercise caution before heading out - monitor conditions closely and be ready to return early.",
+        "HIGH": "Avoid offshore fishing due to severe marine hazards.",
+        "CRITICAL": "Do not go to sea. Conditions are extremely hazardous.",
+    },
+    "coast_guard": {
+        "LOW": "Routine monitoring is sufficient. No elevated response needed.",
+        "MODERATE": "Maintain standard patrol coverage and monitor for changes.",
+        "HIGH": "Increase coastal monitoring, maintain rescue readiness, and monitor vessels in affected waters.",
+        "CRITICAL": "Activate emergency response protocols and prioritize rescue readiness in the affected sector.",
+    },
+    "disaster_management": {
+        "LOW": "No immediate preparedness action required. Maintain routine monitoring.",
+        "MODERATE": "Monitor conditions closely and prepare advisories if hazards increase.",
+        "HIGH": "Issue a coastal advisory, increase monitoring, and coordinate emergency preparedness.",
+        "CRITICAL": "Immediate preparedness required - issue emergency advisory and coordinate evacuation readiness.",
+    },
+    "general": {
+        "LOW": "Conditions are currently safe.",
+        "MODERATE": "Some caution is advised given current conditions.",
+        "HIGH": "Hazardous conditions are present in this area.",
+        "CRITICAL": "Severe hazards present - avoid this area.",
+    },
+}
+
+
+def classify_level(score: int) -> str:
+    """Thresholds per the spec: 0-24 LOW, 25-49 MODERATE, 50-74 HIGH, 75-100 CRITICAL."""
+    if score >= 75:
+        return "CRITICAL"
+    if score >= 50:
+        return "HIGH"
+    if score >= 25:
+        return "MODERATE"
+    return "LOW"
+
+
+def calculate_overall_risk(raw_scores: dict, stakeholder_type: str) -> dict:
+    """Combines the four individual metrics into one overall score using
+    stakeholder-specific weights. Falls back to 'general' weights for any
+    unrecognized stakeholder type, so this never crashes on bad input."""
+    weights = STAKEHOLDER_WEIGHTS.get(stakeholder_type, STAKEHOLDER_WEIGHTS["general"])
+
+    overall_score = round(sum(weights[k] * raw_scores.get(k, 0) for k in weights))
+    overall_score = max(0, min(100, overall_score))  # clamp, just in case
+    overall_level = classify_level(overall_score)
+
+    recommendations = RECOMMENDATIONS.get(stakeholder_type, RECOMMENDATIONS["general"])
+    recommendation = recommendations[overall_level]
+
+    return {
+        "overall_score": overall_score,
+        "overall_level": overall_level,
+        "recommendation": recommendation,
+        "weights_used": weights,
+    }

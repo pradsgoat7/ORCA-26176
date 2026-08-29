@@ -19,7 +19,11 @@ load_dotenv()  # reads the .env file in the backend folder and loads it into os.
 
 from langgraph.graph import StateGraph, END
 
-from risk_engine import calculate_all_metrics
+from risk_engine import calculate_all_metrics, classify_level
+from route_engine import (
+    generate_candidate_routes, estimate_travel_time_minutes,
+    score_route, select_recommended_route, build_route_explanation,
+)
 
 DATA_PATH = Path(__file__).parent / "data" / "marine_data.json"
 
@@ -32,6 +36,31 @@ LOCATION_ALIASES = {
     "kochi": ["kochi", "cochin", "कोच्चि", "कोची"],
     "chennai": ["chennai", "madras", "चेन्नई"],
     "visakhapatnam": ["visakhapatnam", "vizag", "विशाखापत्तनम", "विशाखापट्टणम"],
+    # English-only aliases for the newer 22 demo cities - Hindi/Marathi
+    # native-script coverage for these is a known gap, matching the same
+    # scope limit already documented for non-demo geocoded cities.
+    "kandla": ["kandla"],
+    "porbandar": ["porbandar"],
+    "surat": ["surat"],
+    "mumbai": ["mumbai", "bombay"],
+    "ratnagiri": ["ratnagiri"],
+    "malvan": ["malvan"],
+    "goa": ["goa", "panaji", "panjim"],
+    "karwar": ["karwar"],
+    "mangalore": ["mangalore", "mangaluru"],
+    "kozhikode": ["kozhikode", "calicut"],
+    "alappuzha": ["alappuzha", "alleppey"],
+    "kollam": ["kollam", "quilon"],
+    "thiruvananthapuram": ["thiruvananthapuram", "trivandrum"],
+    "kanyakumari": ["kanyakumari", "cape comorin"],
+    "thoothukudi": ["thoothukudi", "tuticorin"],
+    "rameswaram": ["rameswaram"],
+    "puducherry": ["puducherry", "pondicherry"],
+    "nellore": ["nellore"],
+    "kakinada": ["kakinada"],
+    "paradip": ["paradip"],
+    "puri": ["puri"],
+    "digha": ["digha"],
 }
 
 # Hardcoded fallback phrases so the demo stays multilingual even when the
@@ -284,6 +313,8 @@ class ORCAState(TypedDict, total=False):
     language: str
     day_offset: int
     stakeholder: Optional[dict]
+    route_request: Optional[dict]
+    route_plan: Optional[dict]
     location_key: Optional[str]
     location_data: Optional[dict]
     weather: Optional[dict]
@@ -356,6 +387,233 @@ def stakeholder_agent(state: ORCAState) -> ORCAState:
     # coastal areas require immediate preparedness?" has no specific city
     # at all, but should still classify correctly.
     return {"stakeholder": detect_stakeholder(state["query"])}
+
+
+# ---------- Route request detection (Marine Route Optimization Phase 1) ----------
+ROUTE_KEYWORDS = [
+    "route", "navigate", "navigation", "way to reach", "how do i get",
+    "how should i reach", "which route", "safest way", "path to",
+    "मार्ग", "रास्ता", "कैसे पहुंचूं", "कसे पोहोचू",
+]
+
+PFZ_DESTINATION_KEYWORDS = [
+    "pfz", "fishing zone", "fishing area", "potential fishing zone",
+    "मछली पकड़ने", "मासेमारी",  # Hindi / Marathi for "fishing"
+]
+
+
+def detect_route_request(query: str) -> dict:
+    """Deterministic keyword-based route-request classifier, mirroring the
+    same style as detect_stakeholder(). This runs on EVERY query, but only
+    activates the route feature when it's genuinely a routing question -
+    ordinary queries like 'is it safe to fish near Kochi' must never be
+    reinterpreted as a route request just because this function runs."""
+    query_lower = query.lower()
+    is_route = any(kw in query_lower or kw in query for kw in ROUTE_KEYWORDS)
+
+    if not is_route:
+        return {"is_route_request": False}
+
+    # "from X to Y" - the clearest, most reliable origin signal
+    origin_text = None
+    match = re.search(r"from\s+([A-Za-z]+)\s+to", query, re.IGNORECASE)
+    if match:
+        origin_text = match.group(1)
+
+    destination_is_pfz = any(kw in query_lower for kw in PFZ_DESTINATION_KEYWORDS)
+
+    # Fallback destination extraction for non-PFZ cases (e.g. "to the vessel").
+    # This is intentionally rough - for destinations we have no coordinates
+    # for (a specific vessel, "the affected area"), the extracted text is
+    # mainly used to produce an honest, specific error message, not to
+    # invent a location.
+    destination_text = None
+    if not destination_is_pfz:
+        match2 = re.search(r"\bto\s+(?:the\s+)?([A-Za-z]+)", query, re.IGNORECASE)
+        if match2:
+            destination_text = match2.group(1)
+
+    return {
+        "is_route_request": True,
+        "origin_text": origin_text,
+        "destination_text": destination_text,
+        "destination_is_pfz": destination_is_pfz,
+    }
+
+
+def route_detection_agent(state: ORCAState) -> ORCAState:
+    # Runs regardless of location-resolution errors, same rationale as
+    # stakeholder_agent - route detection doesn't depend on whether the
+    # main query's location happened to resolve successfully.
+    return {"route_request": detect_route_request(state["query"])}
+
+
+def _resolve_named_location(text: str) -> Optional[dict]:
+    """Shared helper: resolves a place name to {lat, lon, name} using the
+    exact same known-city/geocoding/coastal-check pipeline the main planner
+    uses - never a separate location source."""
+    text_lower = text.lower()
+    for key, aliases in LOCATION_ALIASES.items():
+        if any(alias in text_lower for alias in aliases):
+            loc = MARINE_DATA[key]
+            return {"lat": loc["lat"], "lon": loc["lon"], "name": loc["name"]}
+
+    geo = geocode_location(text)
+    if geo and is_near_coast(geo["lat"], geo["lon"]):
+        return {"lat": geo["lat"], "lon": geo["lon"], "name": geo["name"]}
+    return None
+
+
+def resolve_route_endpoints(route_req: dict, location_data: Optional[dict]) -> dict:
+    """Resolves origin/destination coordinates for a route request. Never
+    invents coordinates - returns {'error': ...} when something genuinely
+    can't be determined, per the spec's explicit requirement."""
+    origin_text = route_req.get("origin_text")
+    if origin_text:
+        origin = _resolve_named_location(origin_text)
+    elif location_data:
+        # No explicit "from X" - fall back to whatever location the main
+        # query already resolved (e.g. "give me a safe route to the PFZ"
+        # implies "from where I'm already asking about").
+        origin = {"lat": location_data["lat"], "lon": location_data["lon"], "name": location_data["name"]}
+    else:
+        origin = None
+
+    if not origin:
+        if origin_text:
+            return {"error": f"I couldn't find '{origin_text}' as a known coastal location for this route. "
+                              f"Try mentioning a coastal town, e.g. 'route from Kochi to the fishing zone'."}
+        return {"error": "I couldn't determine a starting location for this route. "
+                          "Try mentioning a coastal town, e.g. 'route from Kochi to the fishing zone'."}
+
+    if route_req.get("destination_is_pfz"):
+        # Reuse the EXISTING PFZ data tied to the resolved origin - never a
+        # separate/fabricated data source, per the spec.
+        pfz = (location_data or {}).get("nearest_pfz")
+        if not pfz:
+            return {"error": f"No fishing zone (PFZ) data is available for {origin['name']} "
+                              f"in the current prototype dataset, so a route there can't be calculated."}
+        destination = {"lat": pfz["lat"], "lon": pfz["lon"], "name": pfz["name"]}
+    else:
+        dest_text = route_req.get("destination_text")
+        destination = _resolve_named_location(dest_text) if dest_text else None
+
+    if not destination:
+        return {"error": f"I don't have coordinates for the destination "
+                          f"('{route_req.get('destination_text') or 'unspecified'}') in this prototype, "
+                          f"so I can't calculate a route there. Try asking for a route to a coastal "
+                          f"town or 'the fishing zone'."}
+
+    return {"origin": origin, "destination": destination}
+
+
+def _lookup_cyclone_alert(name: str) -> tuple:
+    """Returns (cyclone_alert, cyclone_name) if this location name matches
+    one of our known demo cities' mock data; otherwise (False, None), since
+    there's no live cyclone source to check for other locations - never
+    fabricated, per the spec's explicit requirement."""
+    for loc in MARINE_DATA.values():
+        if loc["name"] == name:
+            return loc.get("cyclone_alert", False), loc.get("cyclone_name")
+    return False, None
+
+
+def route_planning_agent(state: ORCAState) -> ORCAState:
+    """Phase 2 generates candidate routes and samples live environmental
+    conditions along each. Phase 3 (this function, extended) then scores
+    each route by running every sample through the EXISTING Risk Engine
+    (calculate_all_metrics) - not a second/duplicate risk system - and
+    picks a recommended route using route_engine's pure comparison logic.
+    Runs only when route_detection_agent flagged a route request; every
+    other query gets route_plan=None at essentially zero cost."""
+    route_req = state.get("route_request") or {}
+    if not route_req.get("is_route_request"):
+        return {"route_plan": None}
+
+    endpoints = resolve_route_endpoints(route_req, state.get("location_data"))
+    if "error" in endpoints:
+        return {"route_plan": {"error": endpoints["error"], "candidate_routes": []}}
+
+    origin = (endpoints["origin"]["lat"], endpoints["origin"]["lon"])
+    destination = (endpoints["destination"]["lat"], endpoints["destination"]["lon"])
+    candidate_routes = generate_candidate_routes(origin, destination)
+
+    # Flatten (route, waypoint) pairs so environmental sampling can run in
+    # parallel across ALL of them - 3 routes x 5 waypoints x 2 live calls
+    # sequentially would be 30 blocking network calls per route request.
+    from concurrent.futures import ThreadPoolExecutor
+
+    def sample_waypoint(wp):
+        live_wind = fetch_live_wind(wp["lat"], wp["lon"])
+        live_marine = fetch_live_marine(wp["lat"], wp["lon"])
+        wind_speed = live_wind["wind_speed_kmph"] if live_wind else DEFAULT_WIND_SPEED_KMPH
+        wave_height = (
+            live_marine["wave_height_m"]
+            if (live_marine and live_marine.get("wave_height_m") is not None)
+            else DEFAULT_WAVE_HEIGHT_M
+        )
+        lightning = live_wind.get("weather_code") in THUNDERSTORM_CODES if live_wind else False
+        data_source = "live" if (live_wind and live_marine and live_marine.get("wave_height_m") is not None) else "mock"
+        return {
+            "lat": wp["lat"], "lon": wp["lon"],
+            "wind_speed_kmph": wind_speed, "wave_height_m": wave_height,
+            "lightning_alert": lightning, "data_source": data_source,
+        }
+
+    all_waypoints = [wp for route in candidate_routes for wp in route["waypoints"]]
+    with ThreadPoolExecutor(max_workers=min(len(all_waypoints), 15)) as executor:
+        all_samples = list(executor.map(sample_waypoint, all_waypoints))
+
+    # Cyclone status has no live per-point source - reuse whatever mock
+    # data applies to the actual endpoints being routed between, rather
+    # than fabricating a value for arbitrary waypoints along the way.
+    origin_cyclone, origin_cyclone_name = _lookup_cyclone_alert(endpoints["origin"]["name"])
+    dest_cyclone, dest_cyclone_name = _lookup_cyclone_alert(endpoints["destination"]["name"])
+    route_cyclone_alert = origin_cyclone or dest_cyclone
+    route_cyclone_name = origin_cyclone_name or dest_cyclone_name
+
+    stakeholder_type = (state.get("stakeholder") or {}).get("type", "general")
+
+    # Reassign sampled results back to their routes, then run EVERY sample
+    # through the existing Risk Engine and aggregate to a route-level score.
+    idx = 0
+    for route in candidate_routes:
+        n = len(route["waypoints"])
+        samples = all_samples[idx:idx + n]
+        route["samples"] = samples
+        route["travel_time_min"] = estimate_travel_time_minutes(route["distance_km"])
+        idx += n
+
+        sample_overall_scores = []
+        sample_metrics_lists = []
+        for s in samples:
+            weather = {
+                "wind_speed_kmph": s["wind_speed_kmph"],
+                "cyclone_alert": route_cyclone_alert,
+                "cyclone_name": route_cyclone_name,
+                "lightning_alert": s["lightning_alert"],
+            }
+            ocean = {"wave_height_m": s["wave_height_m"]}
+            structured = calculate_all_metrics(weather, ocean, stakeholder_type)
+            sample_overall_scores.append(structured["overall_score"])
+            sample_metrics_lists.append(structured["metrics"])
+
+        score_route(route, sample_overall_scores, sample_metrics_lists)
+        route["route_risk_level"] = classify_level(route["route_risk_score"])
+
+    recommended = select_recommended_route(candidate_routes)
+    explanation = build_route_explanation(recommended, candidate_routes)
+
+    return {
+        "route_plan": {
+            "error": None,
+            "origin": endpoints["origin"],
+            "destination": endpoints["destination"],
+            "candidate_routes": candidate_routes,
+            "recommended_route_id": recommended["id"],
+            "explanation": explanation,
+        }
+    }
 
 
 # ---------- Planner agent ----------
@@ -579,6 +837,14 @@ def synthesis_agent(state: ORCAState) -> ORCAState:
     if state.get("error"):
         return {"answer": _build_fallback_answer(state)}
 
+    # Route requests get their user-facing answer built deterministically
+    # from the already-computed route plan (see main.py's _build_route_answer).
+    # Skip the Gemini call entirely here - it would just generate an
+    # unrelated fishing-safety answer about the origin city that gets
+    # thrown away anyway, wasting API quota for nothing.
+    if (state.get("route_request") or {}).get("is_route_request"):
+        return {"answer": "(route recommendation - see route details)"}
+
     api_key = os.environ.get("GOOGLE_API_KEY")
 
     if not api_key:
@@ -656,6 +922,59 @@ Nearest fishing zone: {pfz_text}
 
 # ---------- Build the LangGraph ----------
 # ---------- Risk Zones (map heatmap feature) ----------
+def _compute_zone_risk(loc: dict, stakeholder_type: str) -> dict:
+    """Computes risk for a single zone - extracted so get_zone_risks can run
+    this across all zones in parallel instead of one at a time."""
+    live_wind = fetch_live_wind(loc["lat"], loc["lon"])
+    live_marine = fetch_live_marine(loc["lat"], loc["lon"])
+
+    if live_wind:
+        wind_speed = live_wind["wind_speed_kmph"]
+        lightning = live_wind.get("weather_code") in THUNDERSTORM_CODES
+        wind_source = "live"
+    else:
+        wind_speed = DEFAULT_WIND_SPEED_KMPH
+        lightning = False
+        wind_source = "mock"
+
+    if live_marine and live_marine.get("wave_height_m") is not None:
+        wave_height = live_marine["wave_height_m"]
+        ocean_source = "live"
+    else:
+        wave_height = DEFAULT_WAVE_HEIGHT_M
+        ocean_source = "mock"
+
+    weather = {
+        "wind_speed_kmph": wind_speed,
+        "cyclone_alert": loc["cyclone_alert"],
+        "cyclone_name": loc.get("cyclone_name"),
+        "lightning_alert": lightning,
+    }
+    ocean = {"wave_height_m": wave_height}
+
+    # The actual Risk Engine call - same function the chat pipeline uses.
+    structured = calculate_all_metrics(weather, ocean, stakeholder_type)
+
+    # Primary driver = the highest-scoring individual metric, if any
+    # hazard is actually present.
+    top_metric = max(structured["metrics"], key=lambda m: m["score"])
+    primary_driver = top_metric["name"] if top_metric["score"] > 0 else "No significant hazard"
+
+    return {
+        "name": loc["name"],
+        "lat": loc["lat"],
+        "lon": loc["lon"],
+        "overall_score": structured["overall_score"],
+        "overall_level": structured["overall_level"],
+        "primary_driver": primary_driver,
+        "wave_height_m": wave_height,
+        "wind_speed_kmph": wind_speed,
+        "recommendation": structured["recommendation"],
+        "data_source": "live" if (wind_source == "live" and ocean_source == "live") else "mock",
+        "has_data": True,
+    }
+
+
 def get_zone_risks(stakeholder_type: str = "general") -> list:
     """Computes current risk for each of ORCA's known coastal zones, for the
     map's multi-zone visualization. Deliberately reuses the exact same live
@@ -664,62 +983,19 @@ def get_zone_risks(stakeholder_type: str = "general") -> list:
     is NOT a second/duplicate risk calculation system, just a batch caller
     of the same underlying pieces across multiple locations instead of one.
 
+    Runs across all zones IN PARALLEL via a thread pool - with 25 zones,
+    each needing 2 live HTTP calls, doing this sequentially would mean 50
+    requests one after another and a genuinely slow map. Each request is
+    I/O-bound (waiting on the network), so threads give a real speedup here
+    despite Python's GIL.
+
     Existing weather_agent/ocean_agent nodes are untouched - this is a new,
     standalone function that doesn't modify the LangGraph pipeline at all."""
-    zones = []
+    from concurrent.futures import ThreadPoolExecutor
 
-    for loc in MARINE_DATA.values():
-        live_wind = fetch_live_wind(loc["lat"], loc["lon"])
-        live_marine = fetch_live_marine(loc["lat"], loc["lon"])
-
-        if live_wind:
-            wind_speed = live_wind["wind_speed_kmph"]
-            lightning = live_wind.get("weather_code") in THUNDERSTORM_CODES
-            wind_source = "live"
-        else:
-            wind_speed = DEFAULT_WIND_SPEED_KMPH
-            lightning = False
-            wind_source = "mock"
-
-        if live_marine and live_marine.get("wave_height_m") is not None:
-            wave_height = live_marine["wave_height_m"]
-            ocean_source = "live"
-        else:
-            wave_height = DEFAULT_WAVE_HEIGHT_M
-            ocean_source = "mock"
-
-        weather = {
-            "wind_speed_kmph": wind_speed,
-            "cyclone_alert": loc["cyclone_alert"],
-            "cyclone_name": loc.get("cyclone_name"),
-            "lightning_alert": lightning,
-        }
-        ocean = {"wave_height_m": wave_height}
-
-        # The actual Risk Engine call - same function the chat pipeline uses.
-        structured = calculate_all_metrics(weather, ocean, stakeholder_type)
-
-        # Primary driver = the highest-scoring individual metric, if any
-        # hazard is actually present.
-        top_metric = max(structured["metrics"], key=lambda m: m["score"])
-        primary_driver = top_metric["name"] if top_metric["score"] > 0 else "No significant hazard"
-
-        zones.append({
-            "name": loc["name"],
-            "lat": loc["lat"],
-            "lon": loc["lon"],
-            "overall_score": structured["overall_score"],
-            "overall_level": structured["overall_level"],
-            "primary_driver": primary_driver,
-            "wave_height_m": wave_height,
-            "wind_speed_kmph": wind_speed,
-            "recommendation": structured["recommendation"],
-            "data_source": "live" if (wind_source == "live" and ocean_source == "live") else "mock",
-            # Our fixed zone set always has computable risk thanks to the
-            # existing live/mock fallback design - documented per spec point 9,
-            # rather than silently assuming this holds for any future zone.
-            "has_data": True,
-        })
+    locations = list(MARINE_DATA.values())
+    with ThreadPoolExecutor(max_workers=min(len(locations), 15)) as executor:
+        zones = list(executor.map(lambda loc: _compute_zone_risk(loc, stakeholder_type), locations))
 
     return zones
 
@@ -729,6 +1005,8 @@ def build_graph():
     graph.add_node("language_node", language_node)
     graph.add_node("planner_node", planner_agent)
     graph.add_node("stakeholder_node", stakeholder_agent)
+    graph.add_node("route_detection_node", route_detection_agent)
+    graph.add_node("route_planning_node", route_planning_agent)
     graph.add_node("weather_node", weather_agent)
     graph.add_node("ocean_node", ocean_agent)
     graph.add_node("risk_node", risk_agent)
@@ -744,6 +1022,7 @@ def build_graph():
     graph.add_edge("planner_node", "ocean_node")
     graph.add_edge("planner_node", "geospatial_node")
     graph.add_edge("planner_node", "stakeholder_node")
+    graph.add_edge("planner_node", "route_detection_node")
 
     # Risk agent acts as the sync point: it only reasons over weather+ocean
     # data, but waiting on all three edges (including geospatial) means it
@@ -753,8 +1032,15 @@ def build_graph():
     graph.add_edge("ocean_node", "risk_node")
     graph.add_edge("geospatial_node", "risk_node")
     graph.add_edge("stakeholder_node", "risk_node")
+    # route_planning_node depends on route_detection_node's output, so it
+    # can't be a same-depth sibling of weather/ocean/etc - it must come
+    # AFTER route_detection_node, then join synthesis_node at the same
+    # depth as risk_node (see below) to avoid the exact sync-race bug
+    # already hit and fixed earlier in this project.
+    graph.add_edge("route_detection_node", "route_planning_node")
 
     graph.add_edge("risk_node", "synthesis_node")
+    graph.add_edge("route_planning_node", "synthesis_node")
     graph.add_edge("synthesis_node", END)
 
     return graph.compile()

@@ -43,24 +43,96 @@ def zones(stakeholder: str = "general"):
     }
 
 
+def _build_route_field(result: dict) -> dict:
+    """Builds the API's 'route' field from the internal route_plan. Present
+    (non-None) in EVERY /ask response whenever the query was a route
+    request - regardless of whether the query also happens to trigger the
+    main pipeline's own location error, since route resolution has its own
+    completely independent origin/destination extraction and can legitimately
+    succeed (or fail with its own specific message) either way."""
+    route_plan = result.get("route_plan")
+    if route_plan is None:
+        return None  # not a route request at all
+
+    if route_plan.get("error"):
+        return {
+            "is_route": True,
+            "error": route_plan["error"],
+            "origin": None,
+            "destination": None,
+            "candidate_routes": [],
+            "recommended_route_id": None,
+            "explanation": None,
+        }
+
+    return {
+        "is_route": True,
+        "error": None,
+        "origin": route_plan["origin"],
+        "destination": route_plan["destination"],
+        "candidate_routes": [
+            {
+                "id": r["id"],
+                "label": r["label"],
+                "distance_km": r["distance_km"],
+                "travel_time_min": r["travel_time_min"],
+                "route_risk_score": r["route_risk_score"],
+                "route_risk_level": r["route_risk_level"],
+                "primary_risk_factor": r["primary_risk_factor"],
+                "is_recommended": r["is_recommended"],
+                "waypoints": r["waypoints"],  # for map polyline rendering (Phase 5)
+            }
+            for r in route_plan["candidate_routes"]
+        ],
+        "recommended_route_id": route_plan["recommended_route_id"],
+        "explanation": route_plan["explanation"],
+    }
+
+
+def _build_route_answer(route_field: dict) -> str:
+    """Deterministic, route-focused chat answer - built entirely from
+    already-computed numbers, never invented. Includes the required
+    prototype disclaimer per the spec (this is decision support, not
+    certified maritime navigation)."""
+    recommended = next(r for r in route_field["candidate_routes"] if r["is_recommended"])
+    return (
+        f"Recommended route: {recommended['label']} from {route_field['origin']['name']} to "
+        f"{route_field['destination']['name']} \u2014 {recommended['distance_km']} km, about "
+        f"{recommended['travel_time_min']} min, risk {recommended['route_risk_score']}/100 "
+        f"({recommended['route_risk_level']}). {route_field['explanation']} "
+        f"This is a prototype recommendation based on currently available environmental data, "
+        f"not certified maritime navigation."
+    )
+
+
 @app.post("/ask")
 def ask(request: AskRequest):
     result = run_query(request.query)
 
+    # Compute the route field and the final answer text ONCE, consistently,
+    # regardless of which response branch fires below - this is what fixes
+    # the bug where a route-specific error would otherwise get silently
+    # replaced by the main pipeline's more generic error message.
+    route_field = _build_route_field(result)
+
+    if route_field:
+        final_answer = route_field["error"] if route_field["error"] else _build_route_answer(route_field)
+    else:
+        final_answer = result["answer"]
+
     if result.get("error"):
         return {
-            "answer": result["answer"],
+            "answer": final_answer,
             "error": result["error"],
-            # Phase 4: stakeholder detection runs independently of location
-            # resolution (Phase 1 fix), so it's still meaningful even here.
             "stakeholder": result.get("stakeholder"),
             "risk": None,
+            "route": route_field,
         }
 
     risk_data = result["risk"]
 
     return {
-        "answer": result["answer"],
+        "answer": final_answer,
         # --- Existing fields, unchanged, for backward compatibility ---
         "risk_level": risk_data["level"],
         "risk_reasons": risk_data["reasons"],
@@ -80,4 +152,6 @@ def ask(request: AskRequest):
             "reasons": risk_data.get("structured_reasons", []),
             "recommendation": risk_data.get("recommendation"),
         },
+        # --- Phase 4 (Route Optimization) addition ---
+        "route": route_field,
     }

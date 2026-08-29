@@ -39,6 +39,28 @@
         "lon": 83.4,
         "distance_km": 19
       }
-    }
+    },
+    "kandla": { "name": "Kandla", "lat": 23.03, "lon": 70.22, "chlorophyll_mg_m3": null, "cyclone_alert": false, "nearest_pfz": null },
+    "porbandar": { "name": "Porbandar", "lat": 21.64, "lon": 69.61, "chlorophyll_mg_m3": null, "cyclone_alert": false, "nearest_pfz": null },
+    "surat": { "name": "Surat", "lat": 21.17, "lon": 72.83, "chlorophyll_mg_m3": null, "cyclone_alert": false, "nearest_pfz": null },
+    "mumbai": { "name": "Mumbai", "lat": 18.94, "lon": 72.84, "chlorophyll_mg_m3": null, "cyclone_alert": false, "nearest_pfz": null },
+    "ratnagiri": { "name": "Ratnagiri", "lat": 16.99, "lon": 73.30, "chlorophyll_mg_m3": null, "cyclone_alert": false, "nearest_pfz": null },
+    "malvan": { "name": "Malvan", "lat": 16.06, "lon": 73.47, "chlorophyll_mg_m3": null, "cyclone_alert": false, "nearest_pfz": null },
+    "goa": { "name": "Goa", "lat": 15.49, "lon": 73.83, "chlorophyll_mg_m3": null, "cyclone_alert": false, "nearest_pfz": null },
+    "karwar": { "name": "Karwar", "lat": 14.81, "lon": 74.13, "chlorophyll_mg_m3": null, "cyclone_alert": false, "nearest_pfz": null },
+    "mangalore": { "name": "Mangalore", "lat": 12.87, "lon": 74.84, "chlorophyll_mg_m3": null, "cyclone_alert": false, "nearest_pfz": null },
+    "kozhikode": { "name": "Kozhikode", "lat": 11.26, "lon": 75.78, "chlorophyll_mg_m3": null, "cyclone_alert": false, "nearest_pfz": null },
+    "alappuzha": { "name": "Alappuzha", "lat": 9.49, "lon": 76.33, "chlorophyll_mg_m3": null, "cyclone_alert": false, "nearest_pfz": null },
+    "kollam": { "name": "Kollam", "lat": 8.89, "lon": 76.61, "chlorophyll_mg_m3": null, "cyclone_alert": false, "nearest_pfz": null },
+    "thiruvananthapuram": { "name": "Thiruvananthapuram", "lat": 8.52, "lon": 76.94, "chlorophyll_mg_m3": null, "cyclone_alert": false, "nearest_pfz": null },
+    "kanyakumari": { "name": "Kanyakumari", "lat": 8.08, "lon": 77.54, "chlorophyll_mg_m3": null, "cyclone_alert": false, "nearest_pfz": null },
+    "thoothukudi": { "name": "Thoothukudi", "lat": 8.76, "lon": 78.13, "chlorophyll_mg_m3": null, "cyclone_alert": false, "nearest_pfz": null },
+    "rameswaram": { "name": "Rameswaram", "lat": 9.29, "lon": 79.31, "chlorophyll_mg_m3": null, "cyclone_alert": false, "nearest_pfz": null },
+    "puducherry": { "name": "Puducherry", "lat": 11.94, "lon": 79.83, "chlorophyll_mg_m3": null, "cyclone_alert": false, "nearest_pfz": null },
+    "nellore": { "name": "Nellore", "lat": 14.44, "lon": 80.10, "chlorophyll_mg_m3": null, "cyclone_alert": false, "nearest_pfz": null },
+    "kakinada": { "name": "Kakinada", "lat": 16.99, "lon": 82.24, "chlorophyll_mg_m3": null, "cyclone_alert": false, "nearest_pfz": null },
+    "paradip": { "name": "Paradip", "lat": 20.32, "lon": 86.61, "chlorophyll_mg_m3": null, "cyclone_alert": false, "nearest_pfz": null },
+    "puri": { "name": "Puri", "lat": 19.80, "lon": 85.83, "chlorophyll_mg_m3": null, "cyclone_alert": false, "nearest_pfz": null },
+    "digha": { "name": "Digha", "lat": 21.63, "lon": 87.51, "chlorophyll_mg_m3": null, "cyclone_alert": false, "nearest_pfz": null }
   }
 }

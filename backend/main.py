@@ -29,17 +29,36 @@ def ask(request: AskRequest):
     result = run_query(request.query)
 
     if result.get("error"):
-        return {"answer": result["answer"], "error": result["error"]}
+        return {
+            "answer": result["answer"],
+            "error": result["error"],
+            # Phase 4: stakeholder detection runs independently of location
+            # resolution (Phase 1 fix), so it's still meaningful even here.
+            "stakeholder": result.get("stakeholder"),
+            "risk": None,
+        }
+
+    risk_data = result["risk"]
 
     return {
         "answer": result["answer"],
-        "risk_level": result["risk"]["level"],
-        "risk_reasons": result["risk"]["reasons"],
+        # --- Existing fields, unchanged, for backward compatibility ---
+        "risk_level": risk_data["level"],
+        "risk_reasons": risk_data["reasons"],
         "weather": result["weather"],
         "ocean": result["ocean"],
         "map": {
             "user_location": result["geospatial"]["location_coords"],
             "location_name": result["geospatial"]["location_name"],
             "nearest_pfz": result["geospatial"]["nearest_pfz"],
+        },
+        # --- Phase 4 additions: stakeholder + structured risk contract ---
+        "stakeholder": result.get("stakeholder"),
+        "risk": {
+            "overall_score": risk_data.get("overall_score"),
+            "overall_level": risk_data.get("overall_level"),
+            "metrics": risk_data.get("metrics", []),
+            "reasons": risk_data.get("structured_reasons", []),
+            "recommendation": risk_data.get("recommendation"),
         },
     }

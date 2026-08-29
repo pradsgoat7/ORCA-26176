@@ -3,4 +3,3 @@ __pycache__/
 .env
 node_modules/
 .DS_Store
-.test_phase3.py

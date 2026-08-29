@@ -28,7 +28,10 @@ body { margin: 0; display: flex; height: 100vh; background: #0d1b2a; }
 .examples { padding: 0 16px 12px; font-size: 12px; color: #666; }
 .examples button { display: block; width: 100%; text-align: left; background: none; border: none; color: #0d3b66; padding: 4px 0; cursor: pointer; font-size: 12px; }
 
-/* Phase 6: dynamic stakeholder risk dashboard card */
+/* Phase 2 (Risk Zones): map legend control */
+.map-legend { background: white; padding: 10px 12px; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.3); font-size: 12px; line-height: 1.7; }
+.map-legend-title { font-weight: bold; margin-bottom: 6px; color: #0d3b66; letter-spacing: 0.3px; }
+.legend-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
 .risk-card { background: white; border: 1px solid #ddd; border-radius: 10px; padding: 14px; margin-bottom: 12px; font-size: 13px; }
 .risk-card-title { font-weight: bold; font-size: 13px; color: #0d3b66; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.3px; }
 .risk-overall-row { margin-bottom: 12px; }
@@ -43,3 +46,9 @@ body { margin: 0; display: flex; height: 100vh; background: #0d1b2a; }
 .risk-bar-fill { height: 100%; border-radius: 6px; transition: width 0.4s ease; }
 .risk-recommendation { margin-top: 10px; padding-top: 10px; border-top: 1px solid #eee; font-size: 12px; color: #333; }
 .risk-recommendation b { color: #0d3b66; }
+
+/* Route Optimization Phase 5: route info panel additions (reuses .risk-card as base) */
+.route-alt-item { font-size: 12px; padding: 5px 0; border-top: 1px solid #f0f0f0; }
+.route-alt-item:first-child { border-top: none; padding-top: 8px; }
+.route-alternatives { margin-top: 8px; }
+.route-disclaimer { margin-top: 10px; font-size: 11px; color: #888; font-style: italic; line-height: 1.4; }

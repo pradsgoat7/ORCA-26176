@@ -23,6 +23,14 @@
   #query-input { flex: 1; padding: 10px; border: 1px solid #ccc; border-radius: 6px; font-size: 14px; }
   #send-btn { margin-left: 8px; padding: 10px 18px; background: #0d3b66; color: white; border: none; border-radius: 6px; cursor: pointer; }
   #send-btn:hover { background: #0a2d4d; }
+  #mic-btn { margin-left: 8px; padding: 10px 14px; background: #f5f7fa; color: #0d3b66; border: 1px solid #ccc; border-radius: 6px; cursor: pointer; font-size: 16px; }
+  #mic-btn:hover { background: #e9edf2; }
+  #mic-btn.listening { background: #dc3545; color: white; border-color: #dc3545; animation: pulse 1s infinite; }
+  @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.6; } 100% { opacity: 1; } }
+  #lang-row { display: flex; gap: 6px; padding: 8px 16px 0; align-items: center; }
+  #lang-row span { font-size: 12px; color: #666; margin-right: 4px; }
+  .lang-btn { padding: 4px 10px; font-size: 12px; border: 1px solid #ccc; background: white; border-radius: 12px; cursor: pointer; color: #333; }
+  .lang-btn.active { background: #0d3b66; color: white; border-color: #0d3b66; }
   #map { flex: 1; }
   .examples { padding: 0 16px 12px; font-size: 12px; color: #666; }
   .examples button { display: block; width: 100%; text-align: left; background: none; border: none; color: #0d3b66; padding: 4px 0; cursor: pointer; font-size: 12px; }
@@ -42,8 +50,15 @@
     <button onclick="askExample('Should I go to sea near Chennai today?')">Should I go to sea near Chennai today?</button>
     <button onclick="askExample('What are the conditions near Visakhapatnam?')">What are the conditions near Visakhapatnam?</button>
   </div>
+  <div id="lang-row">
+    <span>Speak in:</span>
+    <button class="lang-btn active" data-lang="en-IN" onclick="setSpeechLang(this)">English</button>
+    <button class="lang-btn" data-lang="hi-IN" onclick="setSpeechLang(this)">हिंदी</button>
+    <button class="lang-btn" data-lang="mr-IN" onclick="setSpeechLang(this)">मराठी</button>
+  </div>
   <div id="input-row">
     <input id="query-input" type="text" placeholder="Ask about fishing safety, e.g. Kochi..." onkeydown="if(event.key==='Enter') sendQuery()">
+    <button id="mic-btn" onclick="toggleListening()" title="Speak your question">🎤</button>
     <button id="send-btn" onclick="sendQuery()">Ask</button>
   </div>
 </div>
@@ -95,6 +110,64 @@
   function askExample(text) {
     document.getElementById('query-input').value = text;
     sendQuery();
+  }
+
+  // ---------- Voice input (Web Speech API - built into Chrome/Edge, free, no API key) ----------
+  let selectedSpeechLang = 'en-IN';
+  let recognition = null;
+  let isListening = false;
+
+  const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+  function setSpeechLang(btn) {
+    selectedSpeechLang = btn.dataset.lang;
+    document.querySelectorAll('.lang-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  }
+
+  function toggleListening() {
+    if (!SpeechRecognitionAPI) {
+      addMessage("Voice input isn't supported in this browser. Please try Chrome or Edge, or type your question instead.", 'bot');
+      return;
+    }
+
+    if (isListening) {
+      recognition.stop();
+      return;
+    }
+
+    recognition = new SpeechRecognitionAPI();
+    recognition.lang = selectedSpeechLang;
+    recognition.continuous = false;
+    recognition.interimResults = false;
+
+    const micBtn = document.getElementById('mic-btn');
+
+    recognition.onstart = () => {
+      isListening = true;
+      micBtn.classList.add('listening');
+      micBtn.textContent = '⏺';
+    };
+
+    recognition.onresult = (event) => {
+      const transcript = event.results[0][0].transcript;
+      // Populate the input field so the user can review/edit before sending,
+      // rather than auto-submitting straight from voice - gives a chance to
+      // correct any misheard words before it goes to the backend.
+      document.getElementById('query-input').value = transcript;
+    };
+
+    recognition.onerror = (event) => {
+      addMessage(`Voice input error: ${event.error}. Please try again or type your question.`, 'bot');
+    };
+
+    recognition.onend = () => {
+      isListening = false;
+      micBtn.classList.remove('listening');
+      micBtn.textContent = '🎤';
+    };
+
+    recognition.start();
   }
 
   async function sendQuery() {

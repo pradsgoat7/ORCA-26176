@@ -18,6 +18,8 @@ load_dotenv()  # reads the .env file in the backend folder and loads it into os.
 
 from langgraph.graph import StateGraph, END
 
+from risk_engine import calculate_all_metrics
+
 DATA_PATH = Path(__file__).parent / "data" / "marine_data.json"
 
 with open(DATA_PATH, "r") as f:
@@ -236,6 +238,7 @@ class ORCAState(TypedDict, total=False):
     query: str
     language: str
     day_offset: int
+    stakeholder: Optional[dict]
     location_key: Optional[str]
     location_data: Optional[dict]
     weather: Optional[dict]
@@ -250,6 +253,64 @@ class ORCAState(TypedDict, total=False):
 def language_node(state: ORCAState) -> ORCAState:
     lang = detect_language(state["query"])
     return {"language": lang}
+
+
+# ---------- Stakeholder detection ----------
+# Keyword sets mined from the spec's own example concerns per stakeholder.
+# English-primary for coast_guard/disaster_management (the spec's own examples
+# are English-only for those two); fisherman includes Hindi/Marathi terms
+# since that's explicitly required by the test scenarios.
+STAKEHOLDER_KEYWORDS = {
+    "fisherman": [
+        "fish", "fishing", "fisherman", "catch", "pfz", "potential fishing zone",
+        "go fishing", "safe to fish", "should i fish", "should i go",
+        "venture into the sea", "offshore fishing", "wave conditions",
+        "fishing zone", "fishing suitability",
+        "मछली", "मासेमारी", "पकड़ना",
+    ],
+    "coast_guard": [
+        "coast guard", "monitoring", "patrol", "vessels in danger",
+        "rescue", "rescue readiness", "maritime risk", "operational hazard",
+        "emergency resources", "increased monitoring", "increased patrol",
+        "vessel", "coastal sector", "response priority",
+    ],
+    "disaster_management": [
+        "disaster", "preparedness", "emergency response", "hazard level",
+        "warning", "advisory", "at risk", "immediate preparedness",
+        "regional risk", "coastal regions at risk", "evacuat",
+        "require preparedness", "disaster risk",
+    ],
+}
+
+
+def detect_stakeholder(query: str) -> dict:
+    """Deterministic keyword-scoring classifier - not an LLM call, so it's
+    free, instant, and doesn't compete with Gemini's rate limit. Picks the
+    category with the most keyword hits; ties broken by dict order
+    (fisherman > coast_guard > disaster_management). Returns 'general'
+    with low confidence if nothing matches, per the spec's requirement to
+    never force an incorrect classification."""
+    query_lower = query.lower()
+    scores = {}
+    for stakeholder_type, keywords in STAKEHOLDER_KEYWORDS.items():
+        count = sum(1 for kw in keywords if kw.lower() in query_lower or kw in query)
+        scores[stakeholder_type] = count
+
+    best_type = max(scores, key=scores.get)
+    best_score = scores[best_type]
+
+    if best_score == 0:
+        return {"type": "general", "confidence": 0.5}
+
+    confidence = min(0.95, 0.55 + 0.15 * best_score)
+    return {"type": best_type, "confidence": round(confidence, 2)}
+
+
+def stakeholder_agent(state: ORCAState) -> ORCAState:
+    # Runs regardless of location-resolution errors - a query like "Which
+    # coastal areas require immediate preparedness?" has no specific city
+    # at all, but should still classify correctly.
+    return {"stakeholder": detect_stakeholder(state["query"])}
 
 
 # ---------- Planner agent ----------
@@ -376,7 +437,21 @@ def risk_agent(state: ORCAState) -> ORCAState:
     if not reasons:
         reasons.append("No significant hazards detected")
 
-    return {"risk": {"level": level, "score": score, "reasons": reasons}}
+    # Phase 2 addition: deterministic metrics/reasons in the new structured
+    # contract, computed independently of the legacy score above. Added
+    # alongside the existing level/score/reasons - nothing existing changes,
+    # so the frontend, fallback templates, and API keep working unmodified.
+    structured = calculate_all_metrics(weather, ocean)
+
+    return {
+        "risk": {
+            "level": level,
+            "score": score,
+            "reasons": reasons,
+            "metrics": structured["metrics"],
+            "structured_reasons": structured["reasons"],
+        }
+    }
 
 
 # ---------- Geospatial agent ----------
@@ -496,6 +571,7 @@ def build_graph():
     graph = StateGraph(ORCAState)
     graph.add_node("language_node", language_node)
     graph.add_node("planner_node", planner_agent)
+    graph.add_node("stakeholder_node", stakeholder_agent)
     graph.add_node("weather_node", weather_agent)
     graph.add_node("ocean_node", ocean_agent)
     graph.add_node("risk_node", risk_agent)
@@ -510,6 +586,7 @@ def build_graph():
     graph.add_edge("planner_node", "weather_node")
     graph.add_edge("planner_node", "ocean_node")
     graph.add_edge("planner_node", "geospatial_node")
+    graph.add_edge("planner_node", "stakeholder_node")
 
     # Risk agent acts as the sync point: it only reasons over weather+ocean
     # data, but waiting on all three edges (including geospatial) means it
@@ -518,6 +595,7 @@ def build_graph():
     graph.add_edge("weather_node", "risk_node")
     graph.add_edge("ocean_node", "risk_node")
     graph.add_edge("geospatial_node", "risk_node")
+    graph.add_edge("stakeholder_node", "risk_node")
 
     graph.add_edge("risk_node", "synthesis_node")
     graph.add_edge("synthesis_node", END)

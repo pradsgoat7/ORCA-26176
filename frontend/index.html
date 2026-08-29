@@ -34,6 +34,22 @@
   #map { flex: 1; }
   .examples { padding: 0 16px 12px; font-size: 12px; color: #666; }
   .examples button { display: block; width: 100%; text-align: left; background: none; border: none; color: #0d3b66; padding: 4px 0; cursor: pointer; font-size: 12px; }
+
+  /* Phase 6: dynamic stakeholder risk dashboard card */
+  .risk-card { background: white; border: 1px solid #ddd; border-radius: 10px; padding: 14px; margin-bottom: 12px; font-size: 13px; }
+  .risk-card-title { font-weight: bold; font-size: 13px; color: #0d3b66; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.3px; }
+  .risk-overall-row { margin-bottom: 12px; }
+  .risk-overall-badge { display: inline-block; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 13px; }
+  .risk-badge-low { background: #d4edda; color: #155724; }
+  .risk-badge-moderate { background: #fff3cd; color: #856404; }
+  .risk-badge-high { background: #ffe0cc; color: #9c4500; }
+  .risk-badge-critical { background: #f8d7da; color: #721c24; }
+  .risk-metric-row { margin-bottom: 8px; }
+  .risk-metric-label { display: flex; justify-content: space-between; font-size: 12px; color: #333; margin-bottom: 3px; }
+  .risk-bar-track { background: #eee; border-radius: 6px; height: 8px; overflow: hidden; }
+  .risk-bar-fill { height: 100%; border-radius: 6px; transition: width 0.4s ease; }
+  .risk-recommendation { margin-top: 10px; padding-top: 10px; border-top: 1px solid #eee; font-size: 12px; color: #333; }
+  .risk-recommendation b { color: #0d3b66; }
 </style>
 </head>
 <body>
@@ -110,6 +126,58 @@
   function askExample(text) {
     document.getElementById('query-input').value = text;
     sendQuery();
+  }
+
+  // ---------- Phase 6: dynamic stakeholder risk dashboard ----------
+  const STAKEHOLDER_DASHBOARD_TITLES = {
+    fisherman: '🎣 ORCA Fishing Safety',
+    coast_guard: '🛟 ORCA Maritime Risk',
+    disaster_management: '🚨 ORCA Disaster Risk',
+    general: '📊 ORCA Risk Analysis',
+  };
+
+  const LEVEL_EMOJIS = { LOW: '🟢', MODERATE: '🟡', HIGH: '🟠', CRITICAL: '🔴' };
+
+  function scoreToColor(score) {
+    if (score >= 75) return '#dc3545'; // red
+    if (score >= 50) return '#fd7e14'; // orange
+    if (score >= 25) return '#ffc107'; // yellow
+    return '#28a745'; // green
+  }
+
+  function renderRiskCard(stakeholder, risk) {
+    const stakeholderType = (stakeholder && stakeholder.type) || 'general';
+    const title = STAKEHOLDER_DASHBOARD_TITLES[stakeholderType] || STAKEHOLDER_DASHBOARD_TITLES.general;
+    const level = risk.overall_level || 'LOW';
+    const emoji = LEVEL_EMOJIS[level] || '⚪';
+    const levelClass = 'risk-badge-' + level.toLowerCase();
+
+    // Bars are built entirely from the backend's numeric scores below -
+    // never hardcoded. If wave_risk = 20, this renders a 20%-wide bar;
+    // if it's 90, the bar is 90% wide, automatically.
+    const metricsHtml = (risk.metrics || []).map(m => `
+      <div class="risk-metric-row">
+        <div class="risk-metric-label"><span>${m.name}</span><span>${m.score}%</span></div>
+        <div class="risk-bar-track">
+          <div class="risk-bar-fill" style="width: ${m.score}%; background: ${scoreToColor(m.score)};"></div>
+        </div>
+      </div>
+    `).join('');
+
+    const card = document.createElement('div');
+    card.className = 'risk-card';
+    card.innerHTML = `
+      <div class="risk-card-title">${title}</div>
+      <div class="risk-overall-row">
+        <span class="risk-overall-badge ${levelClass}">${emoji} ${level} \u2014 ${risk.overall_score}/100</span>
+      </div>
+      ${metricsHtml}
+      <div class="risk-recommendation"><b>Recommendation:</b> ${risk.recommendation || ''}</div>
+    `;
+
+    const messages = document.getElementById('messages');
+    messages.appendChild(card);
+    messages.scrollTop = messages.scrollHeight;
   }
 
   // ---------- Voice input (Web Speech API - built into Chrome/Edge, free, no API key) ----------
@@ -193,6 +261,12 @@
 
       addMessage(data.answer, 'bot', data.risk_level);
 
+      // Phase 6: render the stakeholder-specific risk dashboard, if present
+      // (it won't be, on the error path, since risk is null there).
+      if (data.risk && data.stakeholder) {
+        renderRiskCard(data.stakeholder, data.risk);
+      }
+
       clearMarkers();
       const userLoc = data.map.user_location;
       const pfz = data.map.nearest_pfz;
@@ -200,11 +274,18 @@
       const userMarker = L.marker([userLoc.lat, userLoc.lon])
         .addTo(map)
         .bindPopup(`<b>${data.map.location_name}</b>`);
-      const pfzMarker = L.marker([pfz.lat, pfz.lon])
-        .addTo(map)
-        .bindPopup(`<b>${pfz.name}</b><br>${pfz.distance_km} km away`);
+      markers.push(userMarker);
 
-      markers.push(userMarker, pfzMarker);
+      // Guard: nearest_pfz can now be null for a non-demo geocoded city
+      // (Phase 4's live-geocoding feature), so only render this marker
+      // when PFZ data actually exists.
+      if (pfz) {
+        const pfzMarker = L.marker([pfz.lat, pfz.lon])
+          .addTo(map)
+          .bindPopup(`<b>${pfz.name}</b><br>${pfz.distance_km} km away`);
+        markers.push(pfzMarker);
+      }
+
       map.setView([userLoc.lat, userLoc.lon], 8);
 
     } catch (err) {

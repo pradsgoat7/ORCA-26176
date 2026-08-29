@@ -476,6 +476,13 @@ def geospatial_agent(state: ORCAState) -> ORCAState:
 # ---------- Synthesis agent (LLM-powered, with a multilingual fallback) ----------
 LANGUAGE_NAMES = {"en": "English", "hi": "Hindi", "mr": "Marathi"}
 
+STAKEHOLDER_PERSONAS = {
+    "fisherman": "a marine safety assistant helping a fisherman decide whether it's safe to go out to sea",
+    "coast_guard": "a maritime operations assistant briefing a Coast Guard officer on operational risk and monitoring needs",
+    "disaster_management": "a disaster-preparedness assistant briefing a disaster management official on regional hazard and preparedness needs",
+    "general": "a marine intelligence assistant giving a general audience an overview of current marine conditions",
+}
+
 DATA_SOURCE_NOTES = {
     "en": {"live": "(live weather/wave data)", "mock": "(demo weather/wave data)"},
     "hi": {"live": "(वास्तविक मौसम/लहर डेटा)", "mock": "(डेमो मौसम/लहर डेटा)"},
@@ -531,20 +538,45 @@ def synthesis_agent(state: ORCAState) -> ORCAState:
     try:
         language_name = LANGUAGE_NAMES.get(state.get("language", "en"), "English")
         pfz_data = state["geospatial"].get("nearest_pfz")
-        pfz_text = pfz_data if pfz_data else "Not available for this location in the prototype dataset."
+        if pfz_data:
+            pfz_text = f"{pfz_data['name']}, located {pfz_data['distance_km']} km away"
+        else:
+            pfz_text = "Not available for this location in the prototype dataset."
 
-        prompt = f"""You are a marine safety assistant for fishermen. Based on this data, write a short,
-clear, friendly answer (3-4 sentences) to the user's question. Mention the safety verdict,
-the key reasons, and the nearest fishing zone. Keep it simple, no jargon.
+        stakeholder_type = (state.get("stakeholder") or {}).get("type", "general")
+        persona = STAKEHOLDER_PERSONAS.get(stakeholder_type, STAKEHOLDER_PERSONAS["general"])
+
+        risk = state["risk"]
+        metrics_text = "\n".join(f"- {m['name']}: {m['score']}/100" for m in risk.get("metrics", []))
+        reasons_text = "\n".join(f"- {r['factor']}: {r['reason']}" for r in risk.get("structured_reasons", []))
+
+        prompt = f"""You are {persona}. Based ONLY on the exact data below, write a short, clear,
+friendly answer (3-4 sentences) to the user's question.
+
+STRICT RULES - the numbers below come from a deterministic risk engine, not from you:
+- Use the EXACT overall risk score and level given below. Never invent, change, or round it differently.
+- Never claim a hazard exists if its score is 0 (for example, if Cyclone Risk is 0, do not mention any
+  cyclone threat at all).
+- Never contradict the overall level (for example, do not call something "safe" if the level is HIGH or
+  CRITICAL, or vice versa).
+- You may explain WHY the score is what it is using the reasons provided, but never add a hazard that
+  isn't listed below.
 
 IMPORTANT: The user's query is in {language_name}. You must respond entirely in {language_name},
 using natural, everyday phrasing a local speaker would use - not a stiff literal translation.
 
 User question: {state['query']}
 Location: {state['geospatial']['location_name']}
-Weather: {state['weather']}
-Ocean conditions: {state['ocean']}
-Risk assessment: {state['risk']}
+
+Overall Risk Score: {risk.get('overall_score')}/100 ({risk.get('overall_level')})
+Recommendation: {risk.get('recommendation')}
+
+Individual risk metrics:
+{metrics_text}
+
+Contributing factors:
+{reasons_text if reasons_text else '- No significant hazards detected'}
+
 Nearest fishing zone: {pfz_text}
 """
 

@@ -655,6 +655,75 @@ Nearest fishing zone: {pfz_text}
 
 
 # ---------- Build the LangGraph ----------
+# ---------- Risk Zones (map heatmap feature) ----------
+def get_zone_risks(stakeholder_type: str = "general") -> list:
+    """Computes current risk for each of ORCA's known coastal zones, for the
+    map's multi-zone visualization. Deliberately reuses the exact same live
+    fetchers (fetch_live_wind, fetch_live_marine) and the exact same Risk
+    Engine (calculate_all_metrics) that the main chat pipeline uses - this
+    is NOT a second/duplicate risk calculation system, just a batch caller
+    of the same underlying pieces across multiple locations instead of one.
+
+    Existing weather_agent/ocean_agent nodes are untouched - this is a new,
+    standalone function that doesn't modify the LangGraph pipeline at all."""
+    zones = []
+
+    for loc in MARINE_DATA.values():
+        live_wind = fetch_live_wind(loc["lat"], loc["lon"])
+        live_marine = fetch_live_marine(loc["lat"], loc["lon"])
+
+        if live_wind:
+            wind_speed = live_wind["wind_speed_kmph"]
+            lightning = live_wind.get("weather_code") in THUNDERSTORM_CODES
+            wind_source = "live"
+        else:
+            wind_speed = DEFAULT_WIND_SPEED_KMPH
+            lightning = False
+            wind_source = "mock"
+
+        if live_marine and live_marine.get("wave_height_m") is not None:
+            wave_height = live_marine["wave_height_m"]
+            ocean_source = "live"
+        else:
+            wave_height = DEFAULT_WAVE_HEIGHT_M
+            ocean_source = "mock"
+
+        weather = {
+            "wind_speed_kmph": wind_speed,
+            "cyclone_alert": loc["cyclone_alert"],
+            "cyclone_name": loc.get("cyclone_name"),
+            "lightning_alert": lightning,
+        }
+        ocean = {"wave_height_m": wave_height}
+
+        # The actual Risk Engine call - same function the chat pipeline uses.
+        structured = calculate_all_metrics(weather, ocean, stakeholder_type)
+
+        # Primary driver = the highest-scoring individual metric, if any
+        # hazard is actually present.
+        top_metric = max(structured["metrics"], key=lambda m: m["score"])
+        primary_driver = top_metric["name"] if top_metric["score"] > 0 else "No significant hazard"
+
+        zones.append({
+            "name": loc["name"],
+            "lat": loc["lat"],
+            "lon": loc["lon"],
+            "overall_score": structured["overall_score"],
+            "overall_level": structured["overall_level"],
+            "primary_driver": primary_driver,
+            "wave_height_m": wave_height,
+            "wind_speed_kmph": wind_speed,
+            "recommendation": structured["recommendation"],
+            "data_source": "live" if (wind_source == "live" and ocean_source == "live") else "mock",
+            # Our fixed zone set always has computable risk thanks to the
+            # existing live/mock fallback design - documented per spec point 9,
+            # rather than silently assuming this holds for any future zone.
+            "has_data": True,
+        })
+
+    return zones
+
+
 def build_graph():
     graph = StateGraph(ORCAState)
     graph.add_node("language_node", language_node)

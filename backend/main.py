@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from agents import run_query
+from agents import run_query, get_zone_risks
 
 app = FastAPI(title="ORCA - Marine Intelligence Prototype")
 
@@ -22,6 +22,25 @@ class AskRequest(BaseModel):
 @app.get("/")
 def health_check():
     return {"status": "ORCA backend is running"}
+
+
+@app.get("/zones")
+def zones(stakeholder: str = "general"):
+    """Powers the map's multi-zone risk visualization. Called independently
+    of /ask (not bundled into every chat response) since re-fetching live
+    weather for 3 locations on every single message would add unnecessary
+    latency to the chat itself. The frontend calls this once on page load
+    and again after each response, passing along the just-detected
+    stakeholder so the zone weighting stays consistent with the chat."""
+    return {
+        "zones": get_zone_risks(stakeholder),
+        "legend": {
+            "LOW": "🟢",
+            "MODERATE": "🟡",
+            "HIGH": "🟠",
+            "CRITICAL": "🔴",
+        },
+    }
 
 
 @app.post("/ask")

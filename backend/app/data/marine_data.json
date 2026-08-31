@@ -35,8 +35,8 @@
       "cyclone_alert": false,
       "nearest_pfz": {
         "name": "PFZ near Visakhapatnam coast",
-        "lat": 17.9,
-        "lon": 83.4,
+        "lat": 17.6868,
+        "lon": 83.40,
         "distance_km": 19
       }
     },

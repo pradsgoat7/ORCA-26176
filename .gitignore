@@ -2,4 +2,8 @@ venv/
 __pycache__/
 .env
 node_modules/
+.DS_Storebackend/venv/
+backend/.env
+**/__pycache__/
+*.pyc
 .DS_Store

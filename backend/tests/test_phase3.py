@@ -6,10 +6,10 @@ been updated yet to expose the new fields (that's Phase 4).
 Usage:
     cd backend
     source venv/bin/activate
-    python3 test_phase3.py
+    python3 -m tests.test_phase3
 """
 
-from agents import run_query
+from app.graph.workflow import run_query
 
 TEST_QUERIES = [
     ("Is it safe to fish near Kochi tomorrow?", "fisherman"),

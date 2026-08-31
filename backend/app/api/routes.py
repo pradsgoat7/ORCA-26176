@@ -1,37 +1,33 @@
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+"""
+API routes. Kept as one router file since ORCA currently has exactly
+three endpoints - splitting further would add indirection without benefit
+at this size. If the API grows meaningfully, this is the natural place to
+split into routes/chat.py and routes/zones.py.
+"""
 
-from agents import run_query, get_zone_risks
+from fastapi import APIRouter
 
-app = FastAPI(title="ORCA - Marine Intelligence Prototype")
+from app.api.schemas import AskRequest
+from app.graph.agents.zones import get_zone_risks
+from app.graph.workflow import run_query
 
-# Allow the frontend (opened as a local file or on a different port) to call this API
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-
-class AskRequest(BaseModel):
-    query: str
+router = APIRouter()
 
 
-@app.get("/")
+@router.get("/")
 def health_check():
     return {"status": "ORCA backend is running"}
 
 
-@app.get("/zones")
+@router.get("/zones")
 def zones(stakeholder: str = "general"):
     """Powers the map's multi-zone risk visualization. Called independently
     of /ask (not bundled into every chat response) since re-fetching live
-    weather for 3 locations on every single message would add unnecessary
-    latency to the chat itself. The frontend calls this once on page load
-    and again after each response, passing along the just-detected
-    stakeholder so the zone weighting stays consistent with the chat."""
+    weather for every location on every single message would add
+    unnecessary latency to the chat itself. The frontend calls this once
+    on page load and again after each response, passing along the
+    just-detected stakeholder so the zone weighting stays consistent
+    with the chat."""
     return {
         "zones": get_zone_risks(stakeholder),
         "legend": {
@@ -80,7 +76,7 @@ def _build_route_field(result: dict) -> dict:
                 "route_risk_level": r["route_risk_level"],
                 "primary_risk_factor": r["primary_risk_factor"],
                 "is_recommended": r["is_recommended"],
-                "waypoints": r["waypoints"],  # for map polyline rendering (Phase 5)
+                "waypoints": r["waypoints"],  # for map polyline rendering
             }
             for r in route_plan["candidate_routes"]
         ],
@@ -92,8 +88,8 @@ def _build_route_field(result: dict) -> dict:
 def _build_route_answer(route_field: dict) -> str:
     """Deterministic, route-focused chat answer - built entirely from
     already-computed numbers, never invented. Includes the required
-    prototype disclaimer per the spec (this is decision support, not
-    certified maritime navigation)."""
+    prototype disclaimer (this is decision support, not certified
+    maritime navigation)."""
     recommended = next(r for r in route_field["candidate_routes"] if r["is_recommended"])
     return (
         f"Recommended route: {recommended['label']} from {route_field['origin']['name']} to "
@@ -105,13 +101,13 @@ def _build_route_answer(route_field: dict) -> str:
     )
 
 
-@app.post("/ask")
+@router.post("/ask")
 def ask(request: AskRequest):
     result = run_query(request.query)
 
     # Compute the route field and the final answer text ONCE, consistently,
     # regardless of which response branch fires below - this is what fixes
-    # the bug where a route-specific error would otherwise get silently
+    # a bug where a route-specific error would otherwise get silently
     # replaced by the main pipeline's more generic error message.
     route_field = _build_route_field(result)
 
@@ -143,7 +139,7 @@ def ask(request: AskRequest):
             "location_name": result["geospatial"]["location_name"],
             "nearest_pfz": result["geospatial"]["nearest_pfz"],
         },
-        # --- Phase 4 additions: stakeholder + structured risk contract ---
+        # --- Stakeholder + structured risk contract ---
         "stakeholder": result.get("stakeholder"),
         "risk": {
             "overall_score": risk_data.get("overall_score"),
@@ -152,6 +148,6 @@ def ask(request: AskRequest):
             "reasons": risk_data.get("structured_reasons", []),
             "recommendation": risk_data.get("recommendation"),
         },
-        # --- Phase 4 (Route Optimization) addition ---
+        # --- Marine Route Optimization ---
         "route": route_field,
     }

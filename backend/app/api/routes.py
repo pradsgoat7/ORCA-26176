@@ -121,6 +121,7 @@ def ask(request: AskRequest):
             "answer": final_answer,
             "error": result["error"],
             "stakeholder": result.get("stakeholder"),
+            "language": result.get("language", "en"),
             "risk": None,
             "route": route_field,
         }
@@ -141,6 +142,7 @@ def ask(request: AskRequest):
         },
         # --- Stakeholder + structured risk contract ---
         "stakeholder": result.get("stakeholder"),
+        "language": result.get("language", "en"),  # needed for voice output to speak the correct language
         "risk": {
             "overall_score": risk_data.get("overall_score"),
             "overall_level": risk_data.get("overall_level"),

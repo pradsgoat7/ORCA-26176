@@ -1,3 +1,24 @@
+// ---------- Voice output (Web Speech API - speechSynthesis, same free browser API family) ----------
+const SPEECH_LANG_MAP = { en: 'en-IN', hi: 'hi-IN', mr: 'mr-IN' };
+let voiceOutputEnabled = true;
+
+function speak(text, langCode) {
+  if (!voiceOutputEnabled) return;
+  if (!('speechSynthesis' in window)) return; // graceful no-op if unsupported, never crashes
+
+  window.speechSynthesis.cancel(); // stop any currently-speaking utterance before starting a new one
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = SPEECH_LANG_MAP[langCode] || 'en-IN';
+  window.speechSynthesis.speak(utterance);
+}
+
+function toggleVoiceOutput(btn) {
+  voiceOutputEnabled = !voiceOutputEnabled;
+  btn.textContent = voiceOutputEnabled ? '🔊' : '🔇';
+  btn.title = voiceOutputEnabled ? 'Voice output on - click to mute' : 'Voice output muted - click to unmute';
+  if (!voiceOutputEnabled) window.speechSynthesis.cancel();
+}
+
 // ---------- Voice input (Web Speech API - built into Chrome/Edge, free, no API key) ----------
 
 let selectedSpeechLang = 'en-IN';

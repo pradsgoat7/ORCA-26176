@@ -29,6 +29,7 @@
   <div id="input-row">
     <input id="query-input" type="text" placeholder="Ask about fishing safety, e.g. Kochi..." onkeydown="if(event.key==='Enter') sendQuery()">
     <button id="mic-btn" onclick="toggleListening()" title="Speak your question">🎤</button>
+    <button id="voice-output-btn" onclick="toggleVoiceOutput(this)" title="Voice output on - click to mute">🔊</button>
     <button id="send-btn" onclick="sendQuery()">Ask</button>
   </div>
 </div>

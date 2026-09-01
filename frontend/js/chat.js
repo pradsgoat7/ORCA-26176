@@ -101,16 +101,27 @@ async function sendQuery() {
   addMessage(query, 'user');
   input.value = '';
 
+  // Client-side timeout via AbortController. Set ABOVE the backend's own
+  // 30s Gemini timeout (35s here) so a legitimate slow-but-successful
+  // Gemini call never gets cut off by the client - this only protects
+  // against a genuine hang (dead server, network issue), not normal
+  // Gemini latency.
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 35000);
+
   try {
     const res = await fetch(API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query })
+      body: JSON.stringify({ query }),
+      signal: controller.signal,
     });
+    clearTimeout(timeoutId);
     const data = await res.json();
 
     if (data.error) {
       addMessage(data.answer, 'bot');
+      speak(data.answer, data.language);
       // Clear any stale route visuals from a previous successful route
       // query - otherwise an old route line would linger on screen while
       // showing an unrelated error for the current query.
@@ -119,6 +130,7 @@ async function sendQuery() {
     }
 
     addMessage(data.answer, 'bot', data.risk_level);
+    speak(data.answer, data.language);
 
     // Render the stakeholder-specific risk dashboard, if present (it
     // won't be, on the error path, since risk is null there).
@@ -168,6 +180,11 @@ async function sendQuery() {
     }
 
   } catch (err) {
-    addMessage("Could not reach the backend. Is it running on localhost:8000?", 'bot');
+    clearTimeout(timeoutId);
+    if (err.name === 'AbortError') {
+      addMessage("This is taking longer than expected (over 35s) - the server might be busy or unreachable. Please try again in a moment.", 'bot');
+    } else {
+      addMessage("Could not reach the backend. Is it running on localhost:8000?", 'bot');
+    }
   }
 }

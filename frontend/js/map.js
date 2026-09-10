@@ -123,6 +123,7 @@ function renderRoute(routeField) {
 
     const color = levelColor(route.route_risk_level);
     const isRecommended = route.is_recommended;
+    const hasBoundaryWarning = !!route.boundary_warning;
 
     // Recommended: solid, thick, high opacity. Alternatives: dashed,
     // thinner, lower opacity - color still reflects each route's OWN
@@ -134,12 +135,35 @@ function renderRoute(routeField) {
       dashArray: isRecommended ? null : '6, 8',
     }).addTo(map);
 
+    // Maritime boundary geofencing warning: this is a DIFFERENT kind of
+    // hazard than the usual wave/wind/cyclone risk (which the color above
+    // already encodes), so it gets its own overlay rather than reusing a
+    // risk-level color - a CRITICAL-risk route is already red, and a
+    // boundary warning must never be mistaken for "just very risky
+    // weather". A second dashed magenta line, pulsing via CSS
+    // (.boundary-warning-overlay, see style.css), is drawn on top of the
+    // normal route line so the distinction is unmistakable at a glance.
+    if (hasBoundaryWarning) {
+      const boundaryOverlay = L.polyline(latlngs, {
+        color: '#d500f9',
+        weight: (isRecommended ? 5 : 3) + 5,
+        opacity: 0.85,
+        dashArray: '2, 14',
+        lineCap: 'round',
+        className: 'boundary-warning-overlay',
+      }).addTo(map);
+      routeLayers.push(boundaryOverlay);
+    }
+
     const recTag = isRecommended ? ' \u2705 RECOMMENDED' : '';
+    const boundaryWarningHtml = hasBoundaryWarning
+      ? `<br><span class="boundary-warning-popup">\u26a0\ufe0f MARITIME BOUNDARY WARNING \u2014 comes within ${route.boundary_distance_km} km of India's EEZ boundary</span>`
+      : '';
     polyline.bindPopup(`
       <b>${route.label}</b>${recTag}<br>
       ${LEVEL_EMOJIS[route.route_risk_level] || ''} ${route.route_risk_level} \u2014 ${route.route_risk_score}/100<br>
       Distance: ${route.distance_km} km &nbsp; Time: ~${route.travel_time_min} min<br>
-      Primary risk factor: ${route.primary_risk_factor}
+      Primary risk factor: ${route.primary_risk_factor}${boundaryWarningHtml}
     `);
 
     routeLayers.push(polyline);

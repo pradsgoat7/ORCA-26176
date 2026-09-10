@@ -1,0 +1,242 @@
+{
+  "boundary_warning": {
+    "is_route": true,
+    "error": null,
+    "origin": {
+      "lat": 9.29,
+      "lon": 79.31,
+      "name": "Rameswaram"
+    },
+    "destination": {
+      "lat": 9.15,
+      "lon": 79.55,
+      "name": "Palk Strait waypoint (India-Sri Lanka EEZ boundary, demo)"
+    },
+    "candidate_routes": [
+      {
+        "id": "route_direct",
+        "label": "Direct",
+        "distance_km": 30.6,
+        "travel_time_min": 122,
+        "route_risk_score": 36,
+        "route_risk_level": "MODERATE",
+        "primary_risk_factor": "Wind Risk",
+        "is_recommended": true,
+        "waypoints": [
+          {
+            "lat": 9.29,
+            "lon": 79.31
+          },
+          {
+            "lat": 9.255,
+            "lon": 79.37
+          },
+          {
+            "lat": 9.22,
+            "lon": 79.43
+          },
+          {
+            "lat": 9.185,
+            "lon": 79.49
+          },
+          {
+            "lat": 9.15,
+            "lon": 79.55
+          }
+        ],
+        "boundary_warning": true,
+        "boundary_distance_km": 1.83
+      },
+      {
+        "id": "route_b",
+        "label": "Route B",
+        "distance_km": 32.4,
+        "travel_time_min": 130,
+        "route_risk_score": 36,
+        "route_risk_level": "MODERATE",
+        "primary_risk_factor": "Wind Risk",
+        "is_recommended": false,
+        "waypoints": [
+          {
+            "lat": 9.29,
+            "lon": 79.31
+          },
+          {
+            "lat": 9.22749,
+            "lon": 79.35374
+          },
+          {
+            "lat": 9.18109,
+            "lon": 79.40701
+          },
+          {
+            "lat": 9.15749,
+            "lon": 79.47374
+          },
+          {
+            "lat": 9.15,
+            "lon": 79.55
+          }
+        ],
+        "boundary_warning": true,
+        "boundary_distance_km": 1.83
+      },
+      {
+        "id": "route_c",
+        "label": "Route C",
+        "distance_km": 32.4,
+        "travel_time_min": 130,
+        "route_risk_score": 36,
+        "route_risk_level": "MODERATE",
+        "primary_risk_factor": "Wind Risk",
+        "is_recommended": false,
+        "waypoints": [
+          {
+            "lat": 9.29,
+            "lon": 79.31
+          },
+          {
+            "lat": 9.28251,
+            "lon": 79.38626
+          },
+          {
+            "lat": 9.25891,
+            "lon": 79.45299
+          },
+          {
+            "lat": 9.21251,
+            "lon": 79.50626
+          },
+          {
+            "lat": 9.15,
+            "lon": 79.55
+          }
+        ],
+        "boundary_warning": true,
+        "boundary_distance_km": 1.83
+      }
+    ],
+    "recommended_route_id": "route_direct",
+    "explanation": "Direct is both the shortest option and has the lowest marine risk (36/100)."
+  },
+  "no_warning": {
+    "is_route": true,
+    "error": null,
+    "origin": {
+      "lat": 9.9312,
+      "lon": 76.2673,
+      "name": "Kochi"
+    },
+    "destination": {
+      "lat": 9.75,
+      "lon": 75.95,
+      "name": "PFZ near Kochi coast"
+    },
+    "candidate_routes": [
+      {
+        "id": "route_direct",
+        "label": "Direct",
+        "distance_km": 40.2,
+        "travel_time_min": 161,
+        "route_risk_score": 30,
+        "route_risk_level": "MODERATE",
+        "primary_risk_factor": "Wave Risk",
+        "is_recommended": true,
+        "waypoints": [
+          {
+            "lat": 9.9312,
+            "lon": 76.2673
+          },
+          {
+            "lat": 9.8859,
+            "lon": 76.18798
+          },
+          {
+            "lat": 9.8406,
+            "lon": 76.10865
+          },
+          {
+            "lat": 9.7953,
+            "lon": 76.02933
+          },
+          {
+            "lat": 9.75,
+            "lon": 75.95
+          }
+        ],
+        "boundary_warning": false,
+        "boundary_distance_km": 238.04
+      },
+      {
+        "id": "route_b",
+        "label": "Route B",
+        "distance_km": 42.2,
+        "travel_time_min": 169,
+        "route_risk_score": 30,
+        "route_risk_level": "MODERATE",
+        "primary_risk_factor": "Wave Risk",
+        "is_recommended": false,
+        "waypoints": [
+          {
+            "lat": 9.9312,
+            "lon": 76.2673
+          },
+          {
+            "lat": 9.91924,
+            "lon": 76.16865
+          },
+          {
+            "lat": 9.88775,
+            "lon": 76.08132
+          },
+          {
+            "lat": 9.82864,
+            "lon": 76.01
+          },
+          {
+            "lat": 9.75,
+            "lon": 75.95
+          }
+        ],
+        "boundary_warning": false,
+        "boundary_distance_km": 238.04
+      },
+      {
+        "id": "route_c",
+        "label": "Route C",
+        "distance_km": 42.2,
+        "travel_time_min": 169,
+        "route_risk_score": 30,
+        "route_risk_level": "MODERATE",
+        "primary_risk_factor": "Wave Risk",
+        "is_recommended": false,
+        "waypoints": [
+          {
+            "lat": 9.9312,
+            "lon": 76.2673
+          },
+          {
+            "lat": 9.85256,
+            "lon": 76.2073
+          },
+          {
+            "lat": 9.79345,
+            "lon": 76.13598
+          },
+          {
+            "lat": 9.76196,
+            "lon": 76.04865
+          },
+          {
+            "lat": 9.75,
+            "lon": 75.95
+          }
+        ],
+        "boundary_warning": false,
+        "boundary_distance_km": 238.04
+      }
+    ],
+    "recommended_route_id": "route_direct",
+    "explanation": "Direct is both the shortest option and has the lowest marine risk (30/100)."
+  }
+}

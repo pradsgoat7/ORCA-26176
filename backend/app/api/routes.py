@@ -77,6 +77,9 @@ def _build_route_field(result: dict) -> dict:
                 "primary_risk_factor": r["primary_risk_factor"],
                 "is_recommended": r["is_recommended"],
                 "waypoints": r["waypoints"],  # for map polyline rendering
+                # --- Maritime boundary geofencing (India EEZ) ---
+                "boundary_warning": r["boundary_warning"],
+                "boundary_distance_km": r["boundary_distance_km"],
             }
             for r in route_plan["candidate_routes"]
         ],

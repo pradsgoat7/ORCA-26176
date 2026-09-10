@@ -434,11 +434,18 @@ We have **10 days** until submission. Progress so far:
 
 - ✅ **Day 1 — DONE**: Voice output (TTS via speechSynthesis) + frontend
   timeout protection (35s AbortController). Both built and tested.
-- 🔲 **Day 2 — IN PROGRESS**: See Section 13 for concrete research
+- 🟡 **Day 2 — MOSTLY DONE**: See Section 13 for concrete research
   findings on MOSDAC and maritime boundary data — READ THIS BEFORE
   STARTING DAYS 3-4, since it changes the plan meaningfully from the
   original assumption.
-- 🔲 **Days 3-4**: 
+  - MOSDAC account registration: **submitted** (form completed
+    2026-09-01), now waiting on email verification + account approval.
+    This is blocked/pending on MOSDAC's side — do NOT attempt any MOSDAC
+    API calls until an approved account exists to authenticate with.
+  - Maritime boundary data sourcing: **DONE**. See Section 13c below for
+    exactly what was fetched, where it lives, and how it was verified —
+    read that before wiring it into `route_engine.py` on Days 3-4.
+- 🟢 **Days 3-4 — boundary geofencing (backend + frontend) DONE early, MOSDAC not started**:
   - Attempt MOSDAC integration with a **hard time-box: max 1 day**.
     See Section 13 for why this is now flagged as genuinely complex
     (it's a satellite-file download + parse pipeline, not a simple
@@ -446,14 +453,20 @@ We have **10 days** until submission. Progress so far:
     point-value extraction by the end of Day 3, STOP and fall back to
     NASA Ocean Color or Copernicus Marine instead — both have more
     developer-friendly APIs for the same kind of data (SST,
-    chlorophyll). Do not let this one task eat multiple days.
-  - Maritime boundary geofencing is now LOWER RISK than originally
-    assumed — see Section 13. Use Marine Regions' World EEZ boundary
-    (filtered to India) rather than chasing the exact bilateral IMBL
-    line specifically. Wire into `route_engine.py` with a geofencing
-    check that flags if any candidate route passes within a threshold
-    distance of the boundary, and show a bold visual warning on the
-    Leaflet map when this happens.
+    chlorophyll). Do not let this one task eat multiple days. Still
+    blocked on MOSDAC account approval as of this note — check whether
+    that came through before starting.
+  - Maritime boundary geofencing: **DONE, backend AND frontend**
+    (2026-09-01, done ahead of schedule alongside the Day 2 data
+    sourcing since these were a natural continuation of the same
+    session). See Section 13c/14d for the backend implementation
+    (boundary-proximity checking live in `route_planning_agent`,
+    exposed on every route response) and Section 14e for the frontend
+    map/UI warning display that was added on top of it in this same
+    session. Nothing else in the 10-day plan currently depends on this
+    being finished any further — the whole "flag a route that gets
+    close to India's EEZ boundary" feature is now working end-to-end,
+    backend to browser.
 - 🔲 **Days 5-7**: 
   - Set up ChromaDB (no server to manage, unlike pgvector) with a small
     curated set of REAL marine safety/policy documents (IMD cyclone
@@ -614,6 +627,239 @@ route response for the frontend to render as a warning. Reuse existing
 patterns: `services/geocoding.py` already does a similar polygon-adjacent
 distance calculation style for `is_near_coast()` — follow that same code
 style for consistency.
+
+### 14c. Maritime boundary data — ACTUALLY DONE (2026-09-01), here's exactly what landed
+
+The GitHub pre-converted source (`github.com/lsdch/countries-boundaries`)
+was tried first, per the plan, and worked — no Shapefile conversion was
+needed. One correction to the earlier research note: that repo's
+processing SCRIPT output (`output/countries.json`) is git-ignored and not
+actually committed, but its RAW input data
+(`data/EEZ_land_union_v4_202410.json`, ~62MB, already valid GeoJSON) IS
+committed and downloadable directly — so the pre-converted-source shortcut
+still held, just from a slightly different file in that repo than
+originally assumed.
+
+**Important nuance for whoever wires this in on Days 3-4**: the specific
+Marine Regions product in that file is `EEZ_land_union` v4
+(`POL_TYPE: "Union EEZ and country"`), NOT the plain "World EEZ v12"
+polygon originally named in Section 13b. It's a single polygon per
+country that MERGES land territory + EEZ waters into one shape, rather
+than an EEZ-only ring starting at the coastline. Practically this is
+still fine for geofencing (a fishing route's waypoints are never on land
+anyway, so the extra land coverage doesn't create false positives for
+route-safety checks) — but be aware a literal "is this point on land in
+Delhi inside the polygon" check will also return `True`, since Delhi is
+part of India's land territory. If Days 3-4 need a strict water-only
+boundary, re-derive one from Marine Regions' actual World EEZ v12
+download instead; for the geofencing use case described in Section 13b
+(flagging routes that get close to/cross the boundary), the union
+polygon is a correct and sufficient proxy.
+
+- **File**: `backend/app/data/india_eez.geojson` (~1.9MB) — a
+  `FeatureCollection` with one `Feature`: India's unioned
+  land+EEZ polygon (single `Polygon`, 46,928 vertices, no holes), filtered
+  from the full 328-country source file by `ISO_TER1 == "IND"`. Properties
+  kept: `UNION`, `TERRITORY1`, `ISO_TER1`, `SOVEREIGN1`, `MRGID_EEZ`,
+  `POL_TYPE`, `AREA_KM2` (4,804,679 km²), plus a `source` string with full
+  attribution (Flanders Marine Institute / VLIZ, DOI
+  `10.14284/698`, via the GitHub repo above).
+- **Verification**: `backend/tests/test_maritime_boundary.py` (run with
+  `python3 -m tests.test_maritime_boundary` from `backend/`, after
+  `source venv/bin/activate`). Loads the file with `json`, parses the
+  geometry with `shapely.geometry.shape` (same library/pattern as
+  `is_near_coast()` in `geocoding.py`), confirms `is_valid` and geometry
+  type, then checks 7 known points (offshore Mumbai/Chennai → inside;
+  mid-Arabian-Sea, deep Indian Ocean south of Sri Lanka, off Myanmar,
+  and mid-Pacific → outside). **Actually run, all 7 passed** — full output
+  captured in this session, not just "should work."
+- **Dependency added**: `shapely==2.1.2` added to
+  `backend/requirements.txt` and installed into `backend/venv`
+  (pulled in `numpy` as a transitive dependency).
+- **UPDATE (2026-09-01, same day): the geofencing wiring described below
+  as "not done yet" has now been done** — see the new subsection
+  immediately below. The GeoJSON sourcing and the geofencing wiring both
+  landed in the same session; keeping the original text above for
+  history, but treat "NOT done yet" here as superseded.
+
+### 14d. Maritime boundary geofencing wired into route_engine.py — DONE (2026-09-01)
+
+Implements the "Implementation note" from Section 13b: routes now get
+flagged when any waypoint comes within a threshold distance of India's
+EEZ boundary edge, not just when they technically cross it.
+
+- **New module**: `backend/app/services/maritime_boundary.py` — loads
+  `india_eez.geojson` once at import time (same pattern as
+  `app/data/loader.py` loading `marine_data.json`), following the
+  `is_near_coast()` style already used in `geocoding.py`. Exposes:
+  - `INDIA_EEZ_POLYGON` / `INDIA_EEZ_BOUNDARY` (the polygon and its edge
+    line, both shapely geometries)
+  - `distance_to_eez_boundary_km(lat, lon)` — finds the nearest point on
+    the boundary EDGE via shapely (`nearest_points`, local geometry only,
+    no network), then measures the real distance with `haversine_km`
+    (reused from `geocoding.py`, not a raw degree-distance
+    approximation). Works symmetrically whether the point is just inside
+    or just outside the boundary — that symmetry is what makes it useful
+    as a proximity warning rather than a simple inside/outside check.
+  - `DEFAULT_BOUNDARY_WARNING_THRESHOLD_KM = 8.0` — the "how close is too
+    close" threshold, in the 5-10km range originally suggested. Easy to
+    retune later; nothing else hardcodes this value.
+  - **Placed in `services/`, not `route_engine.py`**: `route_engine.py`'s
+    own docstring describes it as pure geometry with no file I/O, "fully
+    testable without any network access" — loading a GeoJSON file at
+    import time would break that claim, so the loading logic lives in
+    its own service module instead (same reasoning that already put
+    `geocoding.py` in `services/`).
+- **New pure function**: `route_engine.check_boundary_proximity(route,
+  waypoint_distances_km, threshold_km)` — takes each waypoint's
+  ALREADY-COMPUTED distance-to-boundary as input (mirrors how
+  `score_route()` takes precomputed risk scores rather than computing
+  them itself), takes the MIN across all waypoints (a route is only as
+  safe as its closest approach to the boundary, matching the existing
+  "MAX of risk samples" philosophy for the analogous risk case), and
+  sets `route["boundary_distance_km"]` + `route["boundary_warning"]`
+  (bool) directly on the route dict.
+- **Wired into `route_planning_agent`**
+  (`app/graph/agents/route_planning.py`): inside the existing per-route
+  scoring loop, right after `score_route()`/`classify_level()`, computes
+  `distance_to_eez_boundary_km()` for every waypoint on that route and
+  calls `check_boundary_proximity()`. No new network calls — this reuses
+  the waypoints already generated by `generate_candidate_routes()`, it's
+  local geometry against the already-loaded polygon.
+- **API contract change** (`app/api/routes.py`,
+  `_build_route_field()`): each entry in `route.candidate_routes[]` now
+  also has `boundary_warning` (bool) and `boundary_distance_km` (float,
+  km to the nearest boundary point) alongside the existing
+  `route_risk_score` / `is_recommended` / etc. fields — additive only,
+  no existing field renamed or removed. Verified via a real
+  `TestClient` `/ask` call in this session (route: "safest route from
+  Kochi to the fishing zone" → 200 OK, all three candidate routes
+  correctly show `boundary_warning: false`,
+  `boundary_distance_km: 238.04`, since Kochi's PFZ is nowhere near a
+  maritime boundary).
+- **Test**: `backend/tests/test_boundary_geofencing.py` (run with
+  `python3 -m tests.test_boundary_geofencing` from `backend/`, after
+  `source venv/bin/activate`). Builds routes with the same
+  `generate_candidate_routes()` used in production, no network calls
+  needed since boundary-checking doesn't depend on weather data.
+  Two real, non-contrived scenarios, **actually run, both passed**:
+  - **Should warn**: Rameswaram → a point in the Palk Strait right at
+    the India-Sri Lanka EEZ line (9.15, 79.55) — the same stretch of
+    water where Indian fishermen actually crossing into Sri Lankan
+    waters is a real, frequently-reported problem, so this isn't a
+    contrived test case. Result: all 3 candidate routes correctly got
+    `boundary_warning=True`, closest approach 1.83 km.
+  - **Should NOT warn**: Kochi → Kochi's existing `nearest_pfz` (the
+    task's own suggested known-good route). Result: all 3 candidate
+    routes correctly got `boundary_warning=False`, closest approach
+    238.04 km.
+- **Dependency**: no new dependency — reuses `shapely` (already added in
+  Section 13c) and the existing `haversine_km` from `geocoding.py`.
+- **UPDATE (2026-09-01, later same day): the frontend follow-up mentioned
+  as "NOT done yet" below has now been done** — see Section 14e. Keeping
+  the original text here for history.
+- ~~**NOT done yet (deliberately, per this session's scope)**: the
+  frontend/Leaflet map was not touched at all — no visual warning
+  overlay, no styling change on the route polyline, nothing in
+  `map.js`/`chat.js` reads the new fields yet. The backend field exists
+  and is verified working end-to-end (`run_query()` → `/ask` HTTP
+  response), but nothing surfaces it to the user yet. That's the next
+  concrete follow-up.~~
+
+### 14e. Maritime boundary warning — frontend map/UI — DONE (2026-09-01)
+
+Surfaces the `boundary_warning` / `boundary_distance_km` fields from
+Section 14d on the Leaflet map and in the route info panel. Deliberately
+NOT reusing the existing risk-level color palette (green/yellow/orange/
+red) for this — a boundary warning is a categorically different kind of
+hazard than bad weather, and a CRITICAL-risk route is already red, so a
+same-colored boundary warning could be mistaken for "just very risky
+weather." Everything boundary-related uses magenta (`#d500f9`) instead,
+consistently, across the map line, the popup text, and the info-panel
+banner.
+
+- **`frontend/js/map.js` (`renderRoute()`)**: when a candidate route has
+  `boundary_warning: true`, a SECOND polyline is drawn directly on top of
+  the normal risk-colored route line — magenta, thicker, sparsely dashed
+  (`dashArray: '2, 14'`), with `className: 'boundary-warning-overlay'` so
+  CSS can animate it. This additive-overlay approach (rather than just
+  recoloring the existing line) was chosen so the route's OWN risk color/
+  level is still visible underneath — a route can be simultaneously
+  "MODERATE weather risk" (orange-ish, per the existing palette) AND
+  "boundary warning" (magenta stripe on top), and both pieces of
+  information stay visible at once, not one overwriting the other. The
+  route's popup also gained a `boundary_distance_km`-specific warning
+  line when applicable.
+- **`frontend/css/style.css`**: new `.boundary-warning-overlay` class
+  animates `stroke-dashoffset` (a "marching ants" motion along the dashed
+  line) plus a pulsing `opacity` fade — two motion cues stacked, on top
+  of the already-distinct color, so the warning reads as unmistakably
+  different from a static risk-colored line even at a glance. `.
+  boundary-warning-popup` styles the popup's warning text (bold, dark
+  magenta). `.route-boundary-banner` is the info-panel banner style (see
+  next bullet) — pale magenta background, magenta bottom border, same
+  pulse animation.
+- **`frontend/js/chat.js` (`renderRouteInfoPanel()`)**: per the task's
+  own framing — "a route being marked safe on risk score alone while
+  ALSO being flagged as boundary-adjacent is important information a
+  fisherman needs to see clearly, not buried" — whenever the
+  RECOMMENDED route itself has `boundary_warning: true`, a
+  `.route-boundary-banner` div is rendered at the very TOP of the route
+  info card (above the risk badge), explicitly stating the boundary
+  distance and explicitly noting the weather-risk level alone doesn't
+  capture this. This is deliberately independent of the recommended
+  route's own risk level — the real fixture data generated for testing
+  has the recommended route at only MODERATE weather risk while still
+  being 1.83 km from the boundary, which is exactly the "looks safe by
+  one measure, isn't by another" case this banner exists for. The
+  per-alternative list (`altListHtml`) also gained a small inline
+  boundary tag for any non-recommended route that's flagged, for
+  completeness.
+- **NOT done (out of scope per the task)**: no changes to the zone map
+  (`renderZones()`), no browser-verified visual screenshot (no real
+  browser available in this environment — verified via the mocked-DOM
+  test below instead, which is explicitly the fallback the task
+  authorized).
+
+**Testing (real output, not "should work")**: this frontend has no
+existing test framework/`package.json`/jsdom installed, and
+PROJECT_CONTEXT.md's own testing philosophy (Section 7) already
+documents the relevant technique — concatenate the real `<script>` files
+and execute them as ONE unit so top-level `let`/`const` bindings stay
+shared exactly like a browser's multiple `<script>` tags do. This was
+implemented properly this time using Node's built-in `vm` module
+(`vm.createContext` + `vm.runInContext`) rather than plain `eval()`,
+since `vm` contexts are specifically designed to replicate that
+shared-global-scope, multiple-script-tag semantics.
+
+- **`backend/tests/generate_route_fixtures.py`** (run via `python3 -m
+  tests.generate_route_fixtures` from `backend/`, after `source
+  venv/bin/activate`) — runs the exact same pipeline
+  `route_planning_agent.py` uses (real live Open-Meteo calls included)
+  for the same two scenarios as Section 14d's backend test (Rameswaram →
+  Palk Strait boundary point; Kochi → Kochi's PFZ), then passes the
+  result through the real `_build_route_field()` from `routes.py`. Writes
+  `frontend/tests/route_fixtures.json` — literally the same JSON shape/
+  values a real `/ask` response would contain for these routes, not
+  hand-typed fake data. **Actually run in this session**; both scenarios
+  reproduced the same numbers as Section 14d's backend test
+  (`boundary_warning` scenario: 36/100 MODERATE risk, 1.83 km to
+  boundary; `no_warning` scenario: 30/100 MODERATE risk, 238.04 km).
+- **`frontend/tests/test_boundary_warning_ui.js`** (run via `node
+  frontend/tests/test_boundary_warning_ui.js` from the repo root, no
+  install needed) — loads `config.js`, `map.js`, `voice.js`, `chat.js` (production
+  script order) into one `vm` context with a minimal hand-rolled Leaflet
+  (`L`) + DOM mock (just the handful of methods these two functions
+  actually call: `addTo`, `bindPopup`, `appendChild`, etc. — no jsdom
+  dependency), then calls the real `renderRoute()` and
+  `renderRouteInfoPanel()` against the fixture JSON above and inspects
+  what got drawn/rendered. **Actually run, 13/13 checks passed**:
+  confirmed exactly one magenta `.boundary-warning-overlay` polyline per
+  flagged route (3 for the Rameswaram scenario, 0 for the Kochi one),
+  confirmed the overlay's color/dash pattern, confirmed the popup text
+  contains the warning and correct distance, and confirmed the info-panel
+  banner appears if-and-only-if the recommended route is flagged, with
+  the correct distance and risk-level text embedded.
 
 ---
 

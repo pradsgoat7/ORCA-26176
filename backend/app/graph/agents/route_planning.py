@@ -14,10 +14,14 @@ from app.core.risk_engine import calculate_all_metrics, classify_level
 from app.core.route_engine import (
     generate_candidate_routes, estimate_travel_time_minutes,
     score_route, select_recommended_route, build_route_explanation,
+    check_boundary_proximity,
 )
 from app.data.loader import MARINE_DATA, LOCATION_ALIASES
 from app.graph.state import ORCAState
 from app.services.geocoding import geocode_location, is_near_coast
+from app.services.maritime_boundary import (
+    distance_to_eez_boundary_km, DEFAULT_BOUNDARY_WARNING_THRESHOLD_KM,
+)
 from app.services.weather_api import fetch_live_wind, fetch_live_marine
 
 
@@ -171,6 +175,14 @@ def route_planning_agent(state: ORCAState) -> ORCAState:
 
         score_route(route, sample_overall_scores, sample_metrics_lists)
         route["route_risk_level"] = classify_level(route["route_risk_score"])
+
+        # Geofencing: how close does this route get to India's EEZ boundary?
+        # Local polygon geometry only, no network call, so it's fine to run
+        # per-route here rather than in the ThreadPoolExecutor sampling above.
+        waypoint_boundary_distances = [
+            distance_to_eez_boundary_km(wp["lat"], wp["lon"]) for wp in route["waypoints"]
+        ]
+        check_boundary_proximity(route, waypoint_boundary_distances, DEFAULT_BOUNDARY_WARNING_THRESHOLD_KM)
 
     recommended = select_recommended_route(candidate_routes)
     explanation = build_route_explanation(recommended, candidate_routes)

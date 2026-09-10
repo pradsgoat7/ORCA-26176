@@ -130,6 +130,20 @@ def select_recommended_route(scored_routes: list, distance_penalty_per_km: float
     return best
 
 
+def check_boundary_proximity(route: dict, waypoint_distances_km: list, threshold_km: float) -> dict:
+    """Flags whether this route gets within threshold_km of India's EEZ
+    boundary edge at ANY waypoint - not just inside/outside, since a route
+    can be worryingly close to the boundary without technically crossing
+    it. Takes each waypoint's already-computed distance-to-boundary (km)
+    rather than the boundary geometry itself, the same way score_route()
+    takes precomputed risk scores instead of computing them - keeps this
+    module free of file I/O and fully testable without shapely/network."""
+    closest_km = round(min(waypoint_distances_km), 2)
+    route["boundary_distance_km"] = closest_km
+    route["boundary_warning"] = closest_km <= threshold_km
+    return route
+
+
 def build_route_explanation(recommended: dict, all_routes: list) -> str:
     """Deterministic explanation built from the actual computed numbers -
     never invented. Can be spoken as-is, or reworded later by the LLM

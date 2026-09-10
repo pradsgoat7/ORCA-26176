@@ -69,12 +69,28 @@ function renderRouteInfoPanel(routeField) {
   const altListHtml = routeField.candidate_routes.map(r => {
     const icon = r.is_recommended ? '\u2705' : (r.route_risk_level === 'HIGH' || r.route_risk_level === 'CRITICAL' ? '\u274c' : '\u26a0\ufe0f');
     const recTag = r.is_recommended ? ' <i>Recommended</i>' : '';
-    return `<div class="route-alt-item">${icon} <b>${r.label}</b> \u2014 ${r.distance_km} km, risk ${r.route_risk_score}/100 (${r.route_risk_level})${recTag}</div>`;
+    const boundaryTag = r.boundary_warning
+      ? ` <span class="boundary-warning-popup">\ud83e\udded\u26a0\ufe0f ${r.boundary_distance_km} km to EEZ boundary</span>`
+      : '';
+    return `<div class="route-alt-item">${icon} <b>${r.label}</b> \u2014 ${r.distance_km} km, risk ${r.route_risk_score}/100 (${r.route_risk_level})${recTag}${boundaryTag}</div>`;
   }).join('');
+
+  // A route can score LOW/MODERATE on weather risk alone while ALSO
+  // running close to India's EEZ boundary - that's genuinely important,
+  // separate information a fisherman needs to see, not something the
+  // risk-level badge communicates. Surface it as its own banner at the
+  // top of the card whenever the RECOMMENDED route is the one flagged,
+  // rather than only in the map popup where it could be missed.
+  const boundaryBannerHtml = recommended.boundary_warning
+    ? `<div class="route-boundary-banner">\u26a0\ufe0f MARITIME BOUNDARY WARNING: the recommended route comes within
+       ${recommended.boundary_distance_km} km of India's EEZ boundary, even though its weather/sea-state risk is
+       ${recommended.route_risk_level}. Exercise caution near international waters.</div>`
+    : '';
 
   const card = document.createElement('div');
   card.className = 'risk-card'; // reuse existing card styling for visual consistency
   card.innerHTML = `
+    ${boundaryBannerHtml}
     <div class="risk-card-title">\ud83e\udded ORCA MARINE ROUTE</div>
     <div class="risk-overall-row">
       <span class="risk-overall-badge ${levelClass}">${emoji} ${recommended.route_risk_level} \u2014 ${recommended.route_risk_score}/100</span>

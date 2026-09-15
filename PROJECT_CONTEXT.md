@@ -126,8 +126,14 @@ backend/
     ├── services/
     │   ├── weather_api.py    fetch_live_wind(), fetch_live_marine() - the ONLY
     │   │                     two functions that call Open-Meteo
-    │   └── geocoding.py      geocode_location(), is_near_coast(),
-    │                         COASTAL_REFERENCE_POINTS, haversine_km()
+    │   ├── geocoding.py      geocode_location(), is_near_coast(),
+    │   │                     COASTAL_REFERENCE_POINTS, haversine_km()
+    │   ├── maritime_boundary.py  distance_to_eez_boundary_km(), loads
+    │   │                     india_eez.geojson - see Section 14d
+    │   └── mosdac_ocean_eye.py  fetch_ocean_temperature_c(),
+    │                         fetch_salinity_psu(), fetch_mixed_layer_depth_m(),
+    │                         fetch_current_speed_ms() - MOSDAC Ocean-Eye WMS,
+    │                         see Section 14f
     ├── data/
     │   ├── loader.py         Loads marine_data.json once at import time.
     │   │                     Exposes MARINE_DATA dict and LOCATION_ALIASES dict
@@ -195,10 +201,19 @@ data-source requirements. **Never blur this line in code or in the pitch.**
 | Wind speed, precipitation | **LIVE** | Open-Meteo Forecast API (free, no key) |
 | Wave height | **LIVE** | Open-Meteo Marine API (free, no key) |
 | Lightning alert | **LIVE-DERIVED** | Inferred from Open-Meteo's WMO weather code (95/96/99 = thunderstorm) |
-| Sea surface temperature | Live when available, else mock default (28.0°C) | Open-Meteo Marine (not always available as daily forecast) |
+| Sea surface temperature | **LIVE** (MOSDAC Ocean-Eye preferred; else Open-Meteo; else mock default 28.0°C) | MOSDAC Ocean-Eye WMS (`SAC_OSF_CIRC_10KM.nc`, `temp` layer) |
+| Salinity | **LIVE**, `null` if MOSDAC unreachable (no mock fallback) | MOSDAC Ocean-Eye WMS (`salinity` layer, psu) |
+| Ocean current speed | **LIVE**, `null` if MOSDAC unreachable (no mock fallback) | MOSDAC Ocean-Eye WMS (vector sum of `eastward_ocean_wave_current` + `northward_ocean_wave_current`, converted cm/s → m/s) |
+| Mixed layer depth | **LIVE**, `null` if MOSDAC unreachable (no mock fallback) | MOSDAC Ocean-Eye WMS (`hmxl` layer, converted cm → m) |
 | Chlorophyll | **MOCK** (only for 3 "rich" demo cities; `null` for the other 22 + geocoded cities) | No free live API exists for this |
 | Cyclone alert | **MOCK** (only Chennai currently has one, `cyclone_alert: true`, for demo purposes) | No free live cyclone-tracking API exists |
 | Potential Fishing Zone (PFZ) location | **MOCK** (only for the 3 "rich" demo cities: Kochi, Chennai, Visakhapatnam; `null` for the other 22 + geocoded cities) | INCOIS has NO public API — confirmed via research. Only web bulletins/WebGIS exist, not programmatically accessible |
+
+**Wave height stays on Open-Meteo deliberately, not MOSDAC**: MOSDAC does
+publish its own wave product (`SAC_OSF_WAVE_10KM.nc`), but it was checked
+in this session and found STUCK/STALE (data only up to 2026-04-26, ~5
+months old) — see Section 14f for the full investigation. Do not switch
+wave height to MOSDAC without re-checking that file's freshness first.
 
 **The 3 "rich" demo cities** (Kochi, Chennai, Visakhapatnam) have full mock
 data (chlorophyll + cyclone + PFZ). **The other 22 cities** in
@@ -445,8 +460,23 @@ We have **10 days** until submission. Progress so far:
   - Maritime boundary data sourcing: **DONE**. See Section 13c below for
     exactly what was fetched, where it lives, and how it was verified —
     read that before wiring it into `route_engine.py` on Days 3-4.
-- 🟢 **Days 3-4 — boundary geofencing (backend + frontend) DONE early, MOSDAC not started**:
-  - Attempt MOSDAC integration with a **hard time-box: max 1 day**.
+- 🟢 **Days 3-4 — boundary geofencing (backend + frontend) DONE, MOSDAC integration DONE (2026-09-15, via a different route than originally planned)**:
+  - **UPDATE (2026-09-15): MOSDAC integration is DONE — see Section 15
+    below for the full findings.** The original assumption in this
+    section (a satellite-file download + parse pipeline, blocked on
+    account approval) turned out to be true only for MOSDAC's generic
+    Data Download API. A SEPARATE MOSDAC tool — **Ocean-Eye**, a WMS
+    (Web Map Service) server — was found to expose ocean current,
+    temperature, salinity, and mixed layer depth as simple
+    `GetFeatureInfo` point queries, **with no login/account required at
+    all**. This is exactly the "developer-friendly REST-ish API" this
+    section said to fall back to Copernicus/NASA for if MOSDAC didn't
+    pan out — except it turned out to exist within MOSDAC itself. Wave
+    height specifically was investigated too and found to be STALE data
+    (stuck ~5 months behind) on this server, so it correctly stays on
+    Open-Meteo, untouched. See Section 15 for exact endpoints, units,
+    and verification.
+  - ~~Attempt MOSDAC integration with a **hard time-box: max 1 day**.
     See Section 13 for why this is now flagged as genuinely complex
     (it's a satellite-file download + parse pipeline, not a simple
     REST API like Open-Meteo). If it's not producing a working
@@ -455,7 +485,7 @@ We have **10 days** until submission. Progress so far:
     developer-friendly APIs for the same kind of data (SST,
     chlorophyll). Do not let this one task eat multiple days. Still
     blocked on MOSDAC account approval as of this note — check whether
-    that came through before starting.
+    that came through before starting.~~ (superseded above)
   - Maritime boundary geofencing: **DONE, backend AND frontend**
     (2026-09-01, done ahead of schedule alongside the Day 2 data
     sourcing since these were a natural continuation of the same
@@ -860,6 +890,119 @@ shared-global-scope, multiple-script-tag semantics.
   contains the warning and correct distance, and confirmed the info-panel
   banner appears if-and-only-if the recommended route is flagged, with
   the correct distance and risk-level text embedded.
+
+### 14f. MOSDAC Ocean-Eye WMS integration — DONE (2026-09-15)
+
+**Corrects the assumption in Section 13a/10**: that section's research was
+accurate for MOSDAC's generic Data Download API (a file-download tool,
+genuinely complex, blocked on account approval). But MOSDAC separately
+runs **Ocean-Eye**, a different tool built on a standard **WMS (Web Map
+Service)** server, which exposes ocean subsurface data as simple
+`GetFeatureInfo` point queries — **no account, no login, no approval
+needed at all**. This was investigated hands-on in this session with real
+HTTP requests (not just documentation reading), and is now live in ORCA.
+
+**Verified findings, by layer, on `SAC_OSF_CIRC_10KM.nc`**
+(`https://mosdac.gov.in/live_data/wms/OSF_CIRC/SAC_OSF_CIRC_10KM.nc`):
+
+| Layer | What it is | Status | Unit (confirmed) |
+|---|---|---|---|
+| `temp` | Potential/surface temperature | **LIVE** | `deg C` |
+| `salinity` | Salinity | **LIVE** | `psu` |
+| `hmxl` | Mixed layer depth | **LIVE** | `cm` (converted to m) |
+| `eastward_ocean_wave_current` + `northward_ocean_wave_current` | Ocean current vector | **LIVE** | `cm/s` (converted to m/s) |
+
+Confirmed live via real `GetCapabilities` + `GetFeatureInfo` calls on
+2026-09-15: the server's `<Extent name="time">` list contained 21
+timestamps from `2026-09-14T00:00:00Z` through `2026-09-19T00:00:00Z` in
+6-hour steps — today through 5 days ahead, genuinely forecast-capable.
+
+**Separately, MOSDAC's companion WAVE file
+(`SAC_OSF_WAVE_10KM.nc`, significant wave height) was checked and found
+STUCK/STALE — its data only went up to 2026-04-26, nearly 5 months old.**
+This is DELIBERATELY NOT used. Wave height stays on the existing
+Open-Meteo integration (`services/weather_api.py`) exactly as before —
+untouched by this integration.
+
+**Unit conversions applied** (both confirmed via the server's own
+`REQUEST=GetMetadata&item=layerDetails&layerName=<name>` endpoint, which
+returns a JSON `"units"` field per layer — a more authoritative source
+than reading `COLORSCALERANGE`, since that field turned out to be an
+identical generic `-50..250` default shared across every layer regardless
+of its actual unit, not a real per-layer signal):
+- `hmxl`: server reports `"units":"cm"` → divided by 100 to store
+  `mixed_layer_depth_m` in metres.
+- `eastward_ocean_wave_current` / `northward_ocean_wave_current`: server
+  reports `"units":"cm/s"` → combined as `sqrt(east² + north²)` then
+  divided by 100 to store `current_speed_ms` in m/s. Sanity-checked with
+  real numbers near Kochi: raw components combine to ~19.8 cm/s (0.198
+  m/s, a realistic open-ocean current) — treating the same raw numbers as
+  already-m/s would imply a physically absurd ~19.8 m/s current.
+- `temp` (`deg C`) and `salinity` (`psu`) needed no conversion.
+
+**Double-checked later (2026-09-16 follow-up), because a returned SST of
+~24.9-25.5°C for Kochi in September looked slightly cool at first
+glance**: re-queried `GetMetadata&item=layerDetails&layerName=temp` again
+and it still explicitly reports `"units":"deg C"` — genuinely Celsius,
+not a units mix-up. The `zaxis` metadata (`positive: false`, values
+running `-1, -3.02, -5.08, ... -5320`) also confirms `ELEVATION=-1.0` is
+correctly the shallowest/near-surface level, not some deeper level
+mislabeled as SST. The "cool" reading itself turned out to be real, not a
+bug: querying the SAME surface level ~30km further offshore (75.0°E,
+9.5°N) for the same timestamp returned 27.1°C, noticeably warmer than
+right at the Kochi coast. This nearshore-cooler-than-offshore pattern
+matches the well-documented **seasonal coastal upwelling along the Kerala
+coast during the SW monsoon (June-September)**, where cooler,
+nutrient-rich subsurface water rises near the coast — the same
+oceanographic effect behind Kerala's famous "mud bank" phenomenon and its
+high fisheries productivity in this season. So the value is trustworthy;
+if a future SST reading here looks "too warm" or "too cool," check
+whether it's monsoon season before assuming a data bug.
+
+**New module**: `backend/app/services/mosdac_ocean_eye.py` — follows the
+exact same plain-function, return-`None`-on-any-failure pattern as
+`services/weather_api.py` (no exceptions ever raised to callers). Exposes
+`fetch_ocean_temperature_c()`, `fetch_salinity_psu()`,
+`fetch_mixed_layer_depth_m()`, `fetch_current_speed_ms()` — each takes
+`(lat, lon, day_offset=0)`, matching the existing `day_offset` convention
+from `planner.py`/`weather_api.py`. `GetCapabilities` (the valid-timestamp
+list) is cached in-memory for 15 minutes rather than re-fetched on every
+point query, since it changes far less often than that.
+
+**Wired into `ocean_agent`** (`app/graph/agents/ocean.py`): tries MOSDAC's
+four functions in addition to the existing Open-Meteo `fetch_live_marine`
+call, same live-then-fallback philosophy as everywhere else in the
+project. `sea_surface_temp_c` now prefers MOSDAC's live value over
+Open-Meteo (which never had daily-forecast SST anyway) over the
+`DEFAULT_SST_C` mock, in that order. Three new fields added to the ocean
+state dict: `salinity_psu`, `current_speed_ms`, `mixed_layer_depth_m` —
+each is honestly `None` (no fabricated fallback value) if MOSDAC is
+unreachable, following the same "null when there's no real source"
+honesty principle already used for chlorophyll (Section 4). **`wave_height_m`
+is completely untouched** — still sourced from Open-Meteo only, exactly
+per the constraint that MOSDAC's wave data is stale.
+
+**Testing — actually run, not "should work"**:
+`backend/tests/test_mosdac_ocean_eye.py` (run via `python3 -m
+tests.test_mosdac_ocean_eye` from `backend/`, after `source
+venv/bin/activate`). **21/21 checks passed**:
+- Each of the 4 new functions called for real against Kochi
+  (9.9312, 76.2673) and its returned value range-checked (e.g. temp
+  25.4°C, salinity 35.3 psu, MLD 10.1 m, current 0.18 m/s — all
+  physically plausible).
+- `day_offset=1` ("tomorrow") confirmed to pick a different, valid
+  timestamp than `day_offset=0`, both drawn from the server's real
+  `GetCapabilities` time list (never a guessed/arbitrary date).
+- Full `run_query()` end-to-end confirmed all three new ocean fields
+  populated with live values, `wave_height_m` still populated
+  independently.
+- MOSDAC outage simulated (patched at `app.graph.agents.ocean`, the
+  importing module — per the Section 6d pattern, not the source module)
+  confirmed graceful fallback: no crash, new fields cleanly `None`,
+  `sea_surface_temp_c` still falls back correctly, and the risk engine
+  still completes.
+- The full existing regression suite (`python3 -m tests.test_phase7`)
+  was also re-run after this change: still 20/20 passing.
 
 ---
 

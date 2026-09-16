@@ -137,7 +137,13 @@ backend/
     ├── data/
     │   ├── loader.py         Loads marine_data.json once at import time.
     │   │                     Exposes MARINE_DATA dict and LOCATION_ALIASES dict
-    │   └── marine_data.json  25 coastal cities. See Section 6 for exact schema.
+    │   ├── marine_data.json  25 coastal cities. See Section 6 for exact schema.
+    │   ├── policy_docs/      Real downloaded PDFs (NDMA + IMD cyclone docs, 2 CMFRI
+    │   │                     fisheries docs added in Section 14j, 1 FAO safety-at-sea
+    │   │                     doc added in Section 14m - 5 documents total)
+    │   └── policy_index/     Persisted ChromaDB collection built from policy_docs/
+    │                         (git-heavy: ~11MB sqlite file - see Section 14g on
+    │                         whether to commit this or .gitignore + rebuild)
     └── graph/
         ├── state.py          ORCAState TypedDict - the shared state shape
         ├── workflow.py       build_graph(), run_query() - the ONLY function
@@ -156,15 +162,30 @@ backend/
             ├── risk.py             risk_agent (calls core/risk_engine.py)
             ├── route_planning.py   resolve_route_endpoints(),
             │                       _lookup_cyclone_alert(), route_planning_agent
+            ├── policy_detection.py  POLICY_QUESTION_PATTERNS, POLICY_DOMAIN_WORDS,
+            │                       detect_policy_request(), policy_detection_agent -
+            │                       see Section 14h. Also imported directly by
+            │                       planner.py (not just used as its own node)
+            ├── policy_agent.py     policy_agent (RAG over the Section 14g index,
+            │                       Gemini-grounded, raw-chunk fallback) - Section 14h
             ├── synthesis.py        FALLBACK_STRINGS, STAKEHOLDER_PERSONAS,
             │                       synthesis_agent (calls Gemini)
             └── zones.py            get_zone_risks() - NOT a graph node, called
                                     directly by the /zones endpoint
 
+scripts/
+└── build_policy_index.py   One-time (re-runnable) RAG ingestion script -
+                             see Section 14g. Run manually, not at server
+                             startup: python3 scripts/build_policy_index.py
+
 tests/
 ├── test_phase3.py   Quick manual smoke test - run with: python3 -m tests.test_phase3
-└── test_phase7.py   Full 6-scenario regression suite (20 checks) - run with:
-                     python3 -m tests.test_phase7
+├── test_phase7.py   Full 6-scenario regression suite (20 checks) - run with:
+│                    python3 -m tests.test_phase7
+├── test_policy_retrieval.py   RAG Step 1 retrieval-quality check (read-only
+│                    against the persisted index) - python3 -m tests.test_policy_retrieval
+└── test_policy_agent.py   RAG Step 2 end-to-end suite (25 checks, policy_agent +
+                     graph wiring) - see Section 14h - python3 -m tests.test_policy_agent
 
 frontend/
 ├── index.html
@@ -384,7 +405,7 @@ direct code inspection:
 | Claim | Verdict |
 |---|---|
 | "Hardcoded JSON, need live Open-Meteo/INCOIS data" | **Partially false** — live Open-Meteo integration already existed for wind/wave/lightning. Only chlorophyll/cyclone/PFZ are mock, and that's because no free API exists for those (verified). |
-| "Missing RAG/vector DB" | **True** — zero RAG code exists. Was deliberately deferred per the project's own original PRD/TRD documents as a "future phase." |
+| "Missing RAG/vector DB" | **Was true, now fully addressed (2026-09-15)** — a real ChromaDB index over real NDMA/IMD policy documents exists (Section 14g), and `policy_agent`/`policy_detection` are now wired into the LangGraph workflow end-to-end (Section 14h) — a user asking "why is fishing banned near a cyclone" gets a real, document-grounded, Gemini-synthesized answer through the actual `/ask` endpoint today. |
 | "Frontend might hang on backend crash/slowness" | **True, now fixed** — added a 35-second client-side timeout (AbortController) in `chat.js`, set deliberately above the backend's own 30s Gemini timeout so legitimate slow calls aren't falsely cut off. |
 | "No IMBL geofencing in route_engine.py" | **True, not yet fixed** — this is Day 3-4 of the current plan (see Section 10). |
 | "No voice output" | **True, now fixed** — `speechSynthesis`-based TTS added in `voice.js`, speaks answers in the detected language, toggleable via a mute button. |
@@ -497,20 +518,47 @@ We have **10 days** until submission. Progress so far:
     being finished any further — the whole "flag a route that gets
     close to India's EEZ boundary" feature is now working end-to-end,
     backend to browser.
-- 🔲 **Days 5-7**: 
-  - Set up ChromaDB (no server to manage, unlike pgvector) with a small
+- 🟢 **Days 5-7 — RAG Step 1 (indexing + retrieval) AND Step 2 (agent + graph wiring) BOTH DONE (2026-09-15)**:
+  - **DONE (Step 1)**: ChromaDB set up with 2 real, publicly downloaded documents
+    (NDMA cyclone management guidelines + IMD's Cyclone Warning SOP), text
+    extracted, chunked, embedded with Chroma's built-in default embedding
+    function, and persisted to disk. Retrieval quality checked with 5 real
+    queries and judged genuinely good (4/5 excellent, 1/5 decent-but-not-
+    perfect at top-3). See Section 14g for the full writeup.
+  - **DONE (Step 2)**: `policy_detection.py` + `policy_agent.py` built and
+    wired into `graph/workflow.py`, and `/ask` now returns a real,
+    document-grounded `policy_answer` field for policy/explanatory
+    questions. This directly satisfies the PS's own example query: "Why
+    has fish productivity declined in a particular coastal region?" (for
+    the cyclone/fishing-ban angle specifically - see Section 14h for
+    exactly what's covered and what isn't). Also fixed a real bug found
+    while building this: a pure policy question with no location (e.g.
+    "why do fishermen need to return to shore during a cyclone warning")
+    was fuzzy-geocoding the leftover word "warning" to a real English
+    village called "Warninglid" and returning a nonsensical error instead
+    of an answer. **Read Section 14h before touching `planner.py`,
+    `synthesis.py`, `weather.py`, `ocean.py`, `geospatial.py`, or
+    `risk.py`** - all five gained a small guard for the
+    "no location, no error" state this fix introduces, and removing that
+    guard without understanding why will reintroduce crashes for policy
+    questions.
+  - ~~Set up ChromaDB (no server to manage, unlike pgvector) with a small
     curated set of REAL marine safety/policy documents (IMD cyclone
     advisories, general fishing ban regulations, coastal safety
-    guidelines — publicly available text, not invented).
-  - Build a new `policy_agent` that retrieves relevant passages via the
+    guidelines — publicly available text, not invented).~~ (superseded
+    above — done, with the 2 specific documents named in Section 14g
+    rather than a broader curated set; more documents can still be added
+    later by re-running `scripts/build_policy_index.py`)
+  - ~~Build a new `policy_agent` that retrieves relevant passages via the
     vector DB and lets Gemini answer "why is fishing banned" / "what does
     this advisory mean" style questions grounded in real retrieved text —
-    never fabricated. This directly satisfies the PS's own example query:
-    "Why has fish productivity declined in a particular coastal region?"
-  - Finish the React frontend rebuild in parallel if a separate team
-    member is on it. If sticking with the current vanilla JS frontend,
-    add the Chart.js radar-style risk visualization here as a polish item
-    (lower priority — bars already show the same data).
+    never fabricated.~~ (superseded above — done, see Section 14h)
+  - 🔲 **Still not done**: Finish the React frontend rebuild in parallel if
+    a separate team member is on it. If sticking with the current vanilla
+    JS frontend, add the Chart.js radar-style risk visualization here as a
+    polish item (lower priority — bars already show the same data), AND
+    surface the new `policy_answer` field in the chat UI (currently
+    backend-only - `chat.js` doesn't render it yet).
 - 🔲 **Day 8**: 
   - Localize 2-3 demo scenarios to Mumbai (or another judge-recognizable
     coastline) using the same forced-severe-condition MOCKING pattern
@@ -1003,6 +1051,701 @@ venv/bin/activate`). **21/21 checks passed**:
   still completes.
 - The full existing regression suite (`python3 -m tests.test_phase7`)
   was also re-run after this change: still 20/20 passing.
+
+### 14g. Policy RAG — STEP 1 ONLY: real document indexing + retrieval — DONE (2026-09-15)
+
+**Scope note, important for whoever continues this**: this step was
+DELIBERATELY limited to proving that real-document retrieval works well.
+**No `policy_agent` exists yet, and nothing is wired into
+`graph/workflow.py`.** Do not assume RAG is usable by end users yet — see
+Section 10 Days 5-7 for what's still outstanding.
+
+**Documents sourced** — both real, public, verified downloadable
+(confirmed via direct `curl`, not just a search result link), saved to
+`backend/app/data/policy_docs/`:
+
+| File | Title | Publisher | Pages | Source URL |
+|---|---|---|---|---|
+| `ndma_cyclone_management_guidelines.pdf` | National Disaster Management Guidelines: Management of Cyclones | NDMA | 190 (all with extractable text) | `https://ndma.gov.in/sites/default/files/PDF/Guidelines/cyclones.pdf` |
+| `imd_cyclone_warning_sop.pdf` | Cyclone Warning in India: Standard Operation Procedure | IMD | 265 (of 274; a handful of image-only pages were skipped) | `https://mausam.imd.gov.in/imd_latest/contents/pdf/cyclone_sop.pdf` |
+
+Both are exactly the two documents named in the task (NDMA's guidelines
+page, IMD's Cyclone Warning SOP) — found via web search since neither
+site has a stable, guessable direct-download URL, then verified as real
+PDFs (not 404s/HTML error pages) before use.
+
+**New dependencies** (added to `requirements.txt`): `chromadb==1.5.9`,
+`pypdf==6.18.1`, `fonttools==4.65.0` (the last one only to fully parse
+one embedded font in the NDMA PDF and silence a pypdf warning — text
+extraction worked fine either way, this just cleans up the output).
+
+**Ingestion script**: `backend/scripts/build_policy_index.py` — a
+re-runnable (not append-only; it drops and rebuilds the collection each
+time, so re-running after adding more source PDFs is safe) script that:
+1. Extracts text per page with `pypdf`, cleans whitespace/line-break
+   artifacts from the PDF layout.
+2. Concatenates each document's pages into one text stream (tracking each
+   page's character offset) and slides a **700-character window with
+   120-character overlap** over it, snapping each boundary to the nearest
+   whitespace so words are never split mid-token. The overlap means a
+   sentence cut at a chunk boundary still appears whole in the
+   neighbouring chunk. Every chunk keeps the page number it started on as
+   metadata (plus the source filename, title, publisher, and source URL)
+   so a retrieved chunk can always be traced back to a real, citable
+   page in a real document.
+3. Embeds and stores each chunk in a **persisted, on-disk** ChromaDB
+   collection (`backend/app/data/policy_index/`, collection name
+   `orca_policy_docs`) using **Chroma's built-in default embedding
+   function** (`all-MiniLM-L6-v2` via `onnxruntime`) — no separate
+   embedding API, no API key, genuinely free. **Note for anyone re-running
+   this on a fresh machine**: the first run downloads the ~80MB ONNX
+   model to `~/.cache/chroma/onnx_models/` and took about 3-4 minutes on
+   a normal connection in this session — this is a ONE-TIME download
+   (cached after), not a per-run cost.
+- **Result of the actual run in this session**: 1,496 chunks total (809
+  from the NDMA guidelines, 687 from the IMD SOP), persisted successfully.
+
+**Retrieval quality — actually judged by reading the output, not just
+"it ran"** (`backend/tests/test_policy_retrieval.py`, read-only against
+the already-built index, top-3 results per query):
+
+| Query | Verdict |
+|---|---|
+| "why do cyclone warnings matter for fishermen" | **Excellent.** Top hit was the SOP's own "6.4.6. Warnings for Fisheries" section — exact criteria for fishery warnings, dissemination channels (AIR radio, SMS/WhatsApp/mobile app), "fishermen advised to return to coast." |
+| "why is fishing banned before a cyclone" | **Excellent.** Retrieved the SOP's exact wind-speed/sea-state table mapping cyclone category → required action, e.g. "Cyclonic Storm... Total suspension of fishing operations" — a genuinely well-grounded, quotable answer to "why," not a vague match. |
+| "how does IMD classify cyclone intensity" | **Excellent.** Retrieved the Dvorak technique explanation and its C.I.-number-to-wind-speed table verbatim. |
+| "what should coastal authorities do during a cyclone" | **Good.** Retrieved genuinely on-topic passages about coastal states' DM planning, capacity-building, and response-strategy requirements — relevant, though more about DM-plan *structure* than a concrete action checklist. Still usable, not a miss. |
+| "what is the role of the district disaster management authority in a cyclone" | **Decent, not perfect — a real gap worth knowing about.** All 3 hits were genuinely about disaster-management institutional roles (NDMA, State DM Departments/SDMAs), but none specifically addressed the **district**-level DMA the query asked about — the retrieved content skewed toward state/national-level roles. This isn't a retrieval bug; it likely means district-specific procedural content is thinner in these two documents than state/national content is. **Flag for whoever builds the agent next**: either accept this as a known limitation (the Gemini synthesis step could still answer reasonably from state-level context), or add a document with more district-level DM detail before relying on this query pattern. |
+
+**Overall assessment**: retrieval quality is genuinely good enough to
+build on — 4 of 5 test queries returned precisely on-topic, quotable,
+correctly-cited passages on the first try, with no reranking or query
+rewriting. The one weaker case is a content-coverage gap (these 2
+documents don't dwell much on district-level specifics), not a chunking
+or embedding problem.
+
+**Not yet decided / flagged for later**: `app/data/policy_index/`
+contains an ~11MB `chroma.sqlite3` file, and `app/data/policy_docs/`
+holds ~15.7MB of PDFs — together a meaningfully sized addition to the
+repo. Nothing was committed to git in this session (per this project's
+own rule to only commit when asked) — when this does get committed,
+decide then whether to commit the built index as-is (simplest, matches
+how `india_eez.geojson` was committed in Section 14c) or `.gitignore` it
+and have each environment run `build_policy_index.py` once locally
+(more correct for a growing document set, more setup friction for
+teammates).
+
+### 14h. Policy RAG — STEP 2: the actual policy agent, wired end-to-end — DONE (2026-09-15)
+
+Builds on Section 14g's index. Follows the exact same two-file pattern as
+route detection/planning: a lightweight, deterministic detection agent
+(`policy_detection.py`), then a heavier agent that does the real work
+(`policy_agent.py`), chained after it in the graph rather than run as a
+same-depth sibling — mirroring `route_detection_node` → `route_planning_node`
+exactly, for the same depth-sync reason (Section 6b).
+
+**`app/graph/agents/policy_detection.py`** — `detect_policy_request(query)`
+requires BOTH a question-pattern signal (`why`, `explain`, `what does X
+mean`, `what is the role/purpose/reason`) AND a policy-domain word (`ban`,
+`warning`, `advisory`, `authority`, `ndma`, `imd`, `preparedness`, etc.) -
+deliberately a two-part AND, not just "contains why", so an ordinary
+live-data question like "why is it windy today" never misfires (neither
+"windy" nor "today" is a domain word). `policy_detection_agent` is a thin
+wrapper writing `{"policy_request": {...}}` to state, run at the same
+graph depth as `route_detection_node` (fed directly by `planner_node`).
+
+**Real bug found and fixed while building this**: a pure policy question
+with NO location at all - the task's own example, "why do fishermen need
+to return to shore during a cyclone warning" - was falling through to
+`planner.py`'s last-resort fallback (`extract_location_phrase` +
+`geocode_location`), which strips known stopwords and grabs the LAST
+leftover word as a location guess. For this exact query that word is
+`warning` (note: `cyclone` is already a stopword in `planner.py`, but
+`warning` isn't) - and Open-Meteo's fuzzy geocoding matched it to a real
+English village called **Warninglid**, in West Sussex. `is_near_coast()`
+would likely have rejected it anyway (all of ORCA's coastal reference
+points are in India, ~120km radius), but the user-facing result either
+way is a nonsensical location-based error for a question that has nothing
+to do with any location - not what "explain a policy" should ever look
+like. **Fix**: `detect_policy_request()` is imported directly into
+`planner.py` (not just used via its own graph node) and checked
+immediately after the known-city-alias loop, BEFORE the fuzzy fallback:
+if it's a policy question that didn't already match a known city,
+`planner_agent` returns `location_data: None` with **no error at all**,
+skipping the fuzzy fallback entirely. **Documented tradeoff**: this means
+a policy question naming a real but non-demo coastal town (e.g. "why is
+fishing banned near Puri") also won't get its location resolved, since
+there's no cheap way to tell "Puri" (a real place) from "warning" (a
+policy term) at this point in the pipeline. Favoring safety over
+completeness here was a deliberate choice, not an oversight.
+
+**Consequence of "no location, no error" needing to be a valid state**:
+previously, every ORCA query either had `location_data` set OR `error`
+set - never neither. Introducing a real third state ("no location, this
+is fine, it's a policy question") meant `weather_agent`, `ocean_agent`,
+`geospatial_agent`, and `risk_agent` all needed a small widened guard
+(`if state.get("error") or not state.get("location_data")` /
+`or state.get("weather") is None or state.get("ocean") is None` for
+`risk_agent` specifically, since it depends on weather+ocean rather than
+location_data directly) instead of just `if state.get("error")` - each
+now cleanly returns `None` for this case instead of crashing on
+`None["lat"]`. `synthesis_agent` got an equivalent new early branch,
+mirroring its existing route-request skip: if there's no `location_data`,
+it skips the risk-focused Gemini prompt entirely (there's no risk data to
+build it from) and just surfaces `policy_agent`'s own answer directly.
+
+**`app/graph/agents/policy_agent.py`** — zero-cost when not needed, same
+pattern as `route_planning_agent`: returns `{"policy_answer": None}`
+immediately if `policy_request.is_policy_request` is false. Otherwise:
+1. Retrieves the top **4** chunks (not 3 - see the district-DMA note
+   below) from the Section 14g ChromaDB index via a lazily-loaded,
+   cached collection handle (`_get_collection()` - never raises; returns
+   `None` if the index is missing or fails to load, same
+   return-`None`-on-failure philosophy as `services/weather_api.py`).
+2. If nothing retrieved (index unavailable): returns an honest "couldn't
+   find anything in the indexed policy documents right now" answer -
+   never a fabricated one.
+3. If chunks retrieved: builds a prompt that explicitly instructs Gemini
+   to answer ONLY from the provided excerpts and to say so honestly if
+   they don't actually answer the question, then calls the same
+   Gemini endpoint/model/30s-timeout convention as `synthesis_agent`.
+4. **Fallback if Gemini fails/unavailable** (rate-limited, no API key,
+   timeout - all observed for real in this session, per the known
+   pattern in Section 12): returns the raw retrieved chunk text verbatim,
+   clearly labeled "this is unprocessed source text, not an AI-written
+   answer" - never silently drops the request, matching `synthesis.py`'s
+   `_build_fallback_answer` philosophy exactly.
+5. Every answer carries a `sources` list (`{title, page, source_url}`,
+   deduplicated) so a retrieved answer can always be traced to a real
+   document/page.
+
+**Correction to Section 14g's "district DMA" finding**: Step 1's
+retrieval test used `n_results=3` and found the district-level DMA
+question returned only state/national-level content. `policy_agent` uses
+`n_results=4`, and re-testing the SAME query
+("what is the role of the district disaster management authority?") at
+that depth actually surfaced genuinely district-specific content (page 48:
+"the Collector/District Magistrate/Deputy Commissioner will head all
+planning and preparedness exercises pertaining to DM"; page 24: the
+NDMA/SDMA/**District** Disaster Management Authorities three-tier
+structure named explicitly) - and Gemini's answer over those chunks was
+specific and correct: DDMA headed by the District Collector/Magistrate,
+co-chaired by an elected local representative, coordinating line
+departments during response. **So this was a top-3-vs-top-4 cutoff
+issue, not a real content-coverage gap** - the documents cover this fine;
+the earlier test just didn't look far enough down the ranked list. Worth
+remembering if a future retrieval-quality issue looks like "missing
+content" - try one more result before concluding the documents don't
+cover something.
+
+**Interaction with normal risk queries - decision and reasoning**: for a
+combined query like "why is fishing banned before a cyclone near
+Chennai?" (has BOTH a known location AND is a policy question), **both
+pipelines run, independently, and both results are kept** - not merged,
+not one overriding the other:
+- Chennai resolves via the normal known-city path (this happens BEFORE
+  `detect_policy_request` is ever consulted in `planner.py`, so it's
+  completely unaffected by the policy-question guard above), so
+  `weather`/`ocean`/`risk`/`geospatial` all compute exactly as they
+  always have for Chennai - `answer` stays the existing risk-based
+  synthesis, untouched.
+- `policy_detection_agent`/`policy_agent` run independently of location
+  presence, so `policy_answer` is ALSO populated - a real, honest,
+  document-grounded explanation (which, tested for real, correctly
+  noted "there is no specific mention of Chennai" in the source
+  documents rather than pretending otherwise).
+- **Reasoning**: the query genuinely asks two different things at once -
+  "what is Chennai's current risk" (a live-data question) and "why does
+  this kind of ban exist in general" (a policy question) - and answering
+  both, additively, is more useful and more honest than forcing a choice.
+  This also matches `routes.py`'s existing "additive only" convention for
+  new fields (`route`, now `policy_answer`) - nothing pre-existing is
+  ever overridden by a new feature.
+
+**API contract change** (`app/api/routes.py`): new `policy_answer` field
+in every `/ask` response (`null` when not a policy question), containing
+`{is_policy_answer, answer, mode, sources}` where `mode` is one of `llm`
+(Gemini succeeded), `fallback_raw_chunks` (Gemini failed, raw text
+returned), or `no_index_or_no_results` (index unavailable). **New
+response shape** for the "no location, no error" case (pure policy
+question): `risk`/`weather`/`ocean`/`map` are all `null`, `error` is
+absent (not present in the response at all, matching the existing
+success-shape convention) - this is a genuinely new third response shape
+alongside the pre-existing "success" and "error" shapes, needed
+specifically so `result["risk"]["level"]`-style indexing in `ask()`
+doesn't crash on `None`.
+
+**Testing - actually run, not "should work"** (`backend/tests/test_policy_agent.py`,
+run via `python3 -m tests.test_policy_agent`): **25/25 checks passed**,
+covering exactly the scenarios from this session's task:
+- The Warninglid bug scenario: confirmed `location_key`/`location_data`
+  are `None`, confirmed NO "Warninglid" or any bogus place appears
+  anywhere in state, confirmed `error` is `None` (not just non-generic -
+  literally absent), confirmed a real non-empty `policy_answer` with
+  real sources.
+- Chennai + policy (mixed): confirmed Chennai's location resolves
+  normally, confirmed the normal risk pipeline still runs, confirmed
+  `policy_answer` is ALSO present, confirmed the main `answer` field is
+  still the risk-based one (not overwritten by the policy fallback text).
+- District DMA question: confirmed a real, non-empty, sourced answer
+  comes back (the specific "is it accurate" judgment was done by reading
+  the actual text - see the correction above).
+- Normal existing query ("is it safe to fish near Kochi tomorrow?"):
+  confirmed `policy_request.is_policy_request` is `False`,
+  `policy_answer` is `None`, and the entire existing pipeline runs
+  identically to before this change.
+- Policy-index-unavailable failure path (patched `_get_collection` to
+  return `None`, mirroring the Section 6d pattern of patching at the
+  importing module): confirmed no crash, confirmed an honest
+  "unavailable" `policy_answer` rather than a silent failure, confirmed
+  the no-location/no-error state still holds correctly even when
+  retrieval itself is down.
+- The full existing regression suite (`python3 -m tests.test_phase7`)
+  was re-run after this change: still 20/20 passing, no regression.
+- Real HTTP-level verification via `fastapi.testclient.TestClient` against
+  the actual `/ask` endpoint (not just `run_query()` directly) for all
+  three response shapes (pure policy, mixed policy+risk, normal) -
+  all returned HTTP 200 with the expected fields, including while Gemini
+  was actively being rate-limited (429) during this session, confirming
+  the fallback paths work under the exact real-world failure mode this
+  project has hit repeatedly before (Section 12).
+
+**Not done (out of scope for this step)**: `frontend/js/chat.js` does not
+render `policy_answer` yet - it's fully working backend-to-API, but a user
+interacting via the actual chat UI won't see it rendered distinctly until
+the frontend is updated (tracked in Section 10, Days 5-7). Multilingual
+policy answers (Hindi/Marathi) are also not implemented - `policy_agent`'s
+Gemini prompt is English-only regardless of detected language, unlike
+`synthesis_agent`'s main prompt; documented here as a known gap, not
+silently missing.
+
+### 14i. BUG FOUND AND FIXED (2026-09-16): Gemini answers intermittently truncated mid-sentence — root cause was a SHARED thinking+output token budget
+
+**Symptom**: "Should I go to sea near Chennai today?" sometimes returned
+a broken, cut-off answer like *"The overall risk score near Chennai
+today (live weather/wave data)"* - missing the score, level, and the
+cyclone-alert explanation Chennai's answers always include (Chennai has
+a mock `cyclone_alert: true` in `marine_data.json`, Section 4). This
+was NOT the deterministic fallback template (`_build_fallback_answer`
+has a fixed, always-complete format) - it was a genuine Gemini response
+that got cut short.
+
+**Investigation - real raw API calls, not guesswork.** Reconstructed the
+exact prompt `synthesis_agent` builds for a given app state, called
+Gemini directly, and logged the full raw response (`finishReason`,
+`usageMetadata`) for 5 back-to-back Chennai calls before touching any
+code:
+
+| Attempt | finishReason | thoughtsTokenCount | candidatesTokenCount | thoughts+candidates | Result |
+|---|---|---|---|---|---|
+| 1 | STOP | 595 | 82 | 677 | full answer |
+| 2 | STOP | 652 | 96 | 748 | full answer |
+| 3 | **MAX_TOKENS** | 937 | 83 | **1020** | **cut off mid-sentence** |
+| 4 | STOP | 701 | 109 | 810 | full answer |
+| 5 | **MAX_TOKENS** | 941 | 79 | **1020** | **cut off mid-sentence** |
+
+**Root cause, definitively confirmed**: `generationConfig.maxOutputTokens`
+(1024 at the time) is a budget SHARED between Gemini's hidden "thinking"
+tokens and the visible answer text - it is NOT a cap on the visible
+answer alone. Even with `thinkingConfig.thinkingLevel` set to `"low"`,
+the actual number of thinking tokens spent varied wildly call-to-call for
+the exact same prompt - 595 to 941 tokens, a >50% swing with no code or
+input change between calls. Both `MAX_TOKENS` attempts show
+`thoughts + candidates` landing right at ~1020, just under the old 1024
+ceiling - direct proof the shared budget, not the prompt or response
+parsing, was the cause. This happened on **2 of 5** real Chennai attempts
+in this sample (40%) - a frequent, not rare, failure mode. Chennai was
+specifically vulnerable (vs. plainer queries) because its cyclone-alert
+reasoning apparently invites more internal "thinking" from the model, but
+the underlying bug applies to any query - any prompt could hit an
+unlucky high-thinking roll and get truncated the same way.
+
+**Fix**: raised `maxOutputTokens` from `1024` to `2048` in BOTH
+`synthesis_agent` (`app/graph/agents/synthesis.py`) and `policy_agent`
+(`app/graph/agents/policy_agent.py` - identical `_call_gemini` pattern,
+same latent bug, fixed proactively even though it hadn't been reported
+there yet). 2048 gives more than 2x headroom over the highest observed
+thinking-token usage (941) plus the ~100-150 tokens a full visible answer
+actually needs - comfortably absorbing normal thinking variance without
+needing to disable or otherwise constrain `thinkingLevel`. This does not
+meaningfully change per-call latency, since the model still only *thinks*
+as much as it was already thinking - it just no longer gets cut off
+before finishing the visible answer when it happens to think for longer.
+
+**Re-verified post-fix - reliably fixed, not fixed once by luck**:
+6 consecutive real end-to-end calls (`run_query("Should I go to sea near
+Chennai today?")`, i.e. through the actual `synthesis_agent`, not a
+reimplementation) all returned complete, well-formed answers with the
+score, level, and cyclone-alert explanation intact - **zero truncations
+in 6/6 real Gemini completions**, versus 2/5 truncated pre-fix. (Two
+further attempts in the same run hit the pre-existing, already-documented
+429 rate limit from Section 12 and correctly fell back to the
+deterministic template - expected behavior, unrelated to this bug.)
+Also spot-checked Visakhapatnam (no cyclone_alert): 3/3 clean, complete
+answers post-fix.
+
+**A note on testing this further**: repeated real-API testing in this
+session (the investigation calls plus the verification calls) burned
+through this session's Gemini free-tier quota, and later attempts to
+gather additional raw `finishReason` confirmations at the new 2048 limit
+were blocked by 429s even after a 75-second wait - consistent with
+Section 12's documented recurring rate-limit behavior, not a sign the fix
+didn't work (the 6/6 clean completions above were gathered before the
+quota ran out). If this needs re-confirming with fresh raw
+`finishReason`/`usageMetadata` output later, wait for the quota to reset
+(free-tier Gemini quotas are typically daily) before re-running.
+
+**Regression check**: `python3 -m tests.test_phase7` re-run after the
+fix - still 20/20 passing.
+
+### 14j. RAG document library expanded to cover fish productivity/decline — DONE (2026-09-16), with an important honest caveat about detection
+
+Section 14g/14h's index only covered cyclones (NDMA guidelines + IMD
+SOP) - genuinely missing the PS's own example question, "why has fish
+productivity declined in a particular coastal region?", which is about
+fisheries science/policy, not cyclone procedure. Added 2 more real,
+verified-downloadable documents to close this gap.
+
+**Documents added** (both verified via direct `curl` - HTTP 200, real
+`application/pdf` content, not a 404/HTML error page - before saving),
+in `backend/app/data/policy_docs/`:
+
+| File | Title | Publisher | Pages (extractable) | Source URL |
+|---|---|---|---|---|
+| `cmfri_marine_fisheries_overview.pdf` | Overview of Marine Fisheries of India | ICAR-CMFRI / AARDO, 2023 (T M Najmudeen) | 11 | `https://eprints.cmfri.org.in/17860/1/AARDO_2023_T%20M%20Najmudeen.pdf` |
+| `cmfri_kerala_fisheries_policy_brief.pdf` | Marine Fisheries Policy Brief - Kerala | ICAR-CMFRI | 26 of 28 (2 image-only pages skipped) | `https://eprints.cmfri.org.in/4000/1/CMFRI_SP_100_ENG.pdf` |
+
+The Kerala-specific brief was deliberately chosen because Kerala/Kochi is
+ORCA's flagship demo city (Section 4) - a fisheries question about Kerala
+specifically now has real, targeted source material, not just
+India-wide generalities.
+
+**Re-indexed via the existing pipeline, no code changes to the RAG
+pipeline itself** - `scripts/build_policy_index.py`'s `POLICY_DOCS` list
+got 2 new entries (the only code touched in this task), then the script
+was re-run exactly as designed (it drops and rebuilds the whole
+collection from every file currently in `policy_docs/`, not just an
+append). Result: **1,614 total chunks** (809 NDMA + 687 IMD + 53
+Overview-of-Marine-Fisheries + 65 Kerala-brief), up from 1,496.
+`policy_detection.py`, `policy_agent.py`, and `workflow.py` were
+deliberately left untouched, per this task's own scope.
+
+**Existing cyclone retrieval quality: held up perfectly, zero
+dilution.** Re-ran all 5 original test queries from Section 14g/14h
+against the 4-document index - every single query returned **the exact
+same top-3 chunks, same sources, same pages, same distance scores**
+as before the new documents were added (e.g. "why is fishing banned
+before a cyclone" still top-hits SOP p.225/212/32 at distances
+0.8161/0.8243/0.8621, unchanged to 4 decimal places). This makes sense
+in hindsight - the new fisheries-science documents are topically distant
+from cyclone/warning content in embedding space, so they never compete
+for the same top-k slots. Doubling the document count did not crowd out
+or degrade the existing cyclone-question quality at all.
+
+**New fish-productivity queries - retrieval quality, read and judged
+honestly, not just "did it run"**:
+
+| Query | Verdict |
+|---|---|
+| "Why has fish productivity declined in a particular coastal region?" (the PS's own literal phrasing) | **Weak/mixed.** Distances noticeably higher (0.73-0.80, vs. 0.51-0.69 for the good cyclone queries) - a more diffuse match. Of the top 4: one hit was just a bibliography/citation list, one was genuinely relevant (global fishery collapse patterns), one was a real hit (Kerala brief's climate-change-impact section: cyclones/storms/coastal erosion affecting fish resource availability/distribution), one was demographic filler. Usable but not sharp - the generic, unspecific phrasing doesn't zero in on the corpus's actual best content (see below). |
+| "Why has fish production declined in Kerala?" | **Good.** Distances dropped to 0.60-0.61 - a much sharper match once "Kerala" is named specifically. Retrieved real production trend data (5.14-6.70 lakh tonnes across 1997-2008) AND a genuinely substantive stock-health statistic: "only 65.8% of assessed stocks being fished within biologically sustainable levels in 2017, a drop from 90% in 1974," directly tied to "effectively managed fisheries have shown increases in biomass while those with under-developed management systems are still in poor shape" - a real, quotable, on-point answer to "why." |
+| "What factors affect marine fish catch trends in India?" | **Good.** Distances 0.60-0.67. Retrieved fishing-gear/effort evolution context, 70-year catch trend data (0.6 to 3.5 million tonnes), and a genuinely specific factor: juvenile-fish landings dropping 34% (2018) and 57% (2019) due to below-minimum-legal-size catches by mechanised trawlers - a real, specific causal factor, not vague generality. |
+
+**Honest overall verdict on retrieval**: naming a specific place (Kerala)
+or a specific angle (catch trends) retrieves genuinely good, substantive,
+quotable content from the new documents. The PS's own generic phrasing
+("a particular coastal region") retrieves more diffuse, partly-citation
+content - real but not sharp. This is a legitimate, expected retrieval
+characteristic (vague queries retrieve vaguer matches), not a defect
+introduced by this task.
+
+**IMPORTANT finding, tested and confirmed - a SEPARATE, detection-side
+gap, not a retrieval-side one**: none of the three new test queries
+above are actually detected as policy questions by the CURRENT
+`policy_detection.py` keyword list, confirmed directly:
+```
+detect_policy_request("Why has fish productivity declined in a particular coastal region?")
+  -> {'is_policy_request': False}
+detect_policy_request("Why has fish production declined in Kerala?")
+  -> {'is_policy_request': False}
+detect_policy_request("What factors affect marine fish catch trends in India?")
+  -> {'is_policy_request': False}
+```
+Each has a `why`/question-pattern match, but **none contain a
+POLICY_DOMAIN_WORD** (`ban`, `regulation`, `warning`, `authority`, etc.
+- see Section 14h) - "productivity", "production", "decline", "catch
+trends" aren't in that list, since it was written before any
+fisheries-specific document existed. Confirmed via a real `run_query()`
+call: asking the PS's literal example question through the full system
+does NOT invoke `policy_agent` at all (`policy_answer: None`) - worse,
+it falls through to `planner.py`'s fuzzy location fallback (the exact
+mechanism behind the Section 14h "Warninglid" bug), extracts the word
+"a" (from "...declined **in a** particular coastal region" matching the
+`in X` preposition pattern), fails to geocode it, and returns
+`error: "Could not identify a known location in the query."` - a
+confusing, unhelpful response for what should be a perfectly
+well-formed and now well-answerable question.
+
+**Per this task's explicit scope, `policy_detection.py` was NOT
+modified to fix this** - it's flagged here as a clear, concrete
+next-step recommendation instead: add fisheries/productivity-domain
+words (`fish stock`, `fish catch`, `fish production`, `fishery`,
+`overfishing`, `productivity`, `decline`, etc.) to
+`POLICY_DOMAIN_WORDS`. **Verified the fix is small and the documents are
+genuinely ready for it**: a naturally-phrased variant that happens to
+include an existing domain word -
+*"Why has fish production declined despite fishing regulations in
+Kerala?"* (adds "regulation") - correctly triggered
+`is_policy_request: True`, resolved with no location and no error, and
+produced a real, well-grounded, correctly-cited Gemini answer:
+
+> "Based on the *Marine Fisheries Policy Brief - Kerala* (page 17),
+> several factors contribute to the decline of fish stocks despite
+> regulations. Major reasons include the large-scale capture of
+> juveniles and low-value fish, which adversely affects marine food
+> webs, biodiversity, and the ecosystem. Additionally, a lack of mesh
+> size regulations likely causes growth overfishing. The document also
+> highlights the impacts of climate change on marine resources and the
+> environment as a key factor in declining fish stocks."
+
+This confirms the new documents are fully reachable end-to-end (real
+retrieval, real Gemini grounding, real citation) through the exact same
+production code path used for cyclone questions - **the remaining gap is
+purely in the keyword trigger list, a small, well-scoped, already-
+diagnosed fix for a future task, not a retrieval or document-quality
+problem.**
+
+**Regression checks after re-indexing**: `python3 -m
+tests.test_policy_agent` (25/25) and `python3 -m tests.test_phase7`
+(20/20) both re-run and still fully passing - the larger index didn't
+break anything.
+
+### 14k. POLICY_DOMAIN_WORDS expanded (2026-09-16) — 2 of 3 detection failures fixed, 1 genuinely remains (different root cause)
+
+Follow-up to 14j's flagged next step. Added `"fish stock"`,
+`"overfishing"`, `"productivity"`, `"fish production"`, `"catch trends"`,
+`"declined"`, `"decline"` to `POLICY_DOMAIN_WORDS` in
+`policy_detection.py`. Re-tested the exact 3 queries that failed
+detection in the previous session, through the real
+`detect_policy_request()` AND the full `run_query()` pipeline:
+
+| Query | `is_policy_request` now | Full pipeline result |
+|---|---|---|
+| "Why has fish productivity declined in a particular coastal region?" | **True** (fixed) | No location error, no crash. Gemini's real answer: *"the available documents don't specifically cover this"* - an honest refusal, not a fabrication, matching the documented weak/diffuse retrieval for this generic phrasing (Section 14j). |
+| "Why has fish production declined in Kerala?" | **True** (fixed) | No location error, no crash. Gemini's real answer, on THIS exact literal phrasing, was also an honest *"the documents don't specifically cover the reasons why fish production has declined in Kerala"* - the top-4 chunks retrieved for this specific wording (pages 5/7/28 of the Kerala brief, page 8 of the Overview doc) are production-trend/regulatory-history/global-stock-stat content, not the explicit causal list on page 17 (juvenile overfishing, lack of mesh-size regulation, climate change) that a different, longer phrasing ("...despite fishing regulations...") surfaced in Section 14j. **Correction to 14j**: that section judged this retrieval "Good" based on a human read of the chunks; seeing Gemini's own honest verdict on those same chunks is a more rigorous test, and it correctly declined to overclaim. This isn't a regression - detection now works exactly as intended, but the literal phrasing still doesn't hit page 17 in the top-4, so the honest-fallback instruction (not the domain-word fix) is what's visible here. |
+| "What factors affect marine fish catch trends in India?" | **False** (still fails) | Falls through to the normal pipeline: `extract_location_phrase` grabs "India" as a location guess, `geocode_location("India")` resolves it, `is_near_coast()` correctly rejects it (India's own centroid isn't within 120km of any coastal reference point), producing `error: "India doesn't appear to be a coastal location, so marine fishing/safety advisories don't apply there."` - a real, live example of the exact same fallback-misfire failure MODE as the Warninglid bug (Section 14h), just via a different word this time. **Root cause is different from what this task fixed**: `"catch trends"` DOES now match `POLICY_DOMAIN_WORDS` (confirmed directly - `has_domain_word: True`), but the query never matched a `POLICY_QUESTION_PATTERNS` entry in the first place - "What factors affect..." isn't `why`/`explain`/`what does X mean`/`what is the role`. This needs a `POLICY_QUESTION_PATTERNS` addition (e.g. a `what factors` pattern), not another domain word - **out of scope for this task, which only asked for domain words**, so left unfixed and flagged here precisely rather than silently expanding scope. |
+
+**Net result: 2 of the 3 previously-broken queries are fixed** (correct
+detection, no bogus location, honest Gemini responses grounded in real
+retrieval rather than fabrication). **The third has a different,
+now-precisely-diagnosed root cause** (`POLICY_QUESTION_PATTERNS` is too
+narrow, not `POLICY_DOMAIN_WORDS`) - a clean, well-scoped next step for
+whoever picks this up.
+
+**Regression checks after the domain-word change**: `python3 -m
+tests.test_policy_agent` (25/25) and `python3 -m tests.test_phase7`
+(20/20) both re-run and still fully passing - no existing detection
+behavior (cyclone/DDMA/normal risk queries) was affected by adding these
+7 words.
+
+### 14l. POLICY_QUESTION_PATTERNS broadened (2026-09-16) — the last 14k gap is CLOSED
+
+Closes the one remaining gap flagged in 14k: "What factors affect marine
+fish catch trends in India?" matched a `POLICY_DOMAIN_WORD`
+(`"catch trends"`) but no `POLICY_QUESTION_PATTERNS` entry, since the
+list only covered `why`/`explain`/`what does X mean`/`what is the
+role/purpose/reason` phrasings - not "what factors/causes/..." style
+causal questions.
+
+**Fix**: added one new entry to `POLICY_QUESTION_PATTERNS` in
+`policy_detection.py`:
+```python
+r"\bwhat (?:factors|causes|leads to|affects|influences|impacts)\b",
+```
+Same style as the existing grouped-alternation entries (e.g.
+`what is the (?:role|purpose|reason)`). This only widens which questions
+get to the AND check with `POLICY_DOMAIN_WORDS` - it does not, on its
+own, make anything match, since a domain word is still required.
+
+**Safety-tested explicitly, per this task's own framing, before trusting
+the fix** - confirmed these stay correctly `False` (real
+`detect_policy_request()` output, not assumed):
+```
+"What are the wave conditions near Kochi?"        -> False
+"Is it safe to fish near Kochi tomorrow?"          -> False
+"What are the conditions near Visakhapatnam?"      -> False
+```
+None of these contain a `POLICY_DOMAIN_WORD`, so the new question-pattern
+alone can't flip them - confirming the two-part AND is doing exactly the
+job it was designed for. Also re-swept the full `test_phase7.py` query
+set (including "Which coastal areas require immediate preparedness near
+Visakhapatnam?", which contains a domain word - `preparedness` - but
+still correctly stays `False` since "which... require..." doesn't match
+any question pattern, old or new) - all unaffected.
+
+**The target query now works end-to-end**:
+```
+detect_policy_request("What factors affect marine fish catch trends in India?")
+  -> {'is_policy_request': True}
+```
+Real `run_query()` call: `location_key: None`, `location_data: None`,
+`error: None` - **the secondary "India" concern from this task is
+resolved by the same fix**, not a separate one: `planner.py`'s guard
+checks `detect_policy_request()` and short-circuits BEFORE the fuzzy
+`extract_location_phrase`/`geocode_location`/`is_near_coast` fallback
+ever runs, unconditionally, regardless of which word would have been
+extracted - so once detection correctly flags this query, "India" (or
+any other place name, broad or narrow) never gets geocoded at all. No
+more `"India doesn't appear to be a coastal location"` error. Gemini's
+free-tier quota was still exhausted from this session's earlier testing
+(the same recurring Section 12 behavior), so the real answer returned
+was the honest raw-chunk fallback - genuinely relevant, correctly
+sourced content (juvenile-landings decline stats, 70-year catch-trend
+history, fishing-gear evolution, all from *Overview of Marine Fisheries
+of India*) - not a crash, not nonsense, not a location error.
+
+**Regression checks after this change**: `python3 -m
+tests.test_policy_agent` (25/25) and `python3 -m tests.test_phase7`
+(20/20) both re-run and still fully passing.
+
+**Section 14k's gap is now fully closed.** All 3 of the originally-failing
+fish-productivity queries (Section 14j/14k) now correctly reach
+`policy_agent` with no location-fallback misfire:
+- "Why has fish productivity declined in a particular coastal region?" -
+  detects correctly, honest "documents don't specifically cover this"
+  (matches the known weak/generic retrieval for this exact phrasing).
+- "Why has fish production declined in Kerala?" - detects correctly,
+  also an honest non-answer on this literal wording (Section 14k already
+  diagnosed why: the top-4 chunks retrieved for this specific phrasing
+  don't include the page with the explicit causal list).
+- "What factors affect marine fish catch trends in India?" - detects
+  correctly (this section), no location error, returns real sourced
+  content.
+
+None of these three fabricate an answer - the system either gives a
+real, grounded response or honestly declines, exactly as designed.
+Remaining follow-up, if pursued later, is a RETRIEVAL-quality question
+(would a different `n_results`, a different chunk size, or additional
+Kerala-specific documents surface page 17's causal list for the plain
+"Why has fish production declined in Kerala?" phrasing too?) - not a
+detection bug anymore.
+
+### 14m. "Fishing Creek" bug fixed — general safety/best-practices detection added + FAO document — DONE (2026-09-16)
+
+**Bug found**: "best practices while fishing" has no location, no
+`why`/`what factors` question shape, and no `POLICY_DOMAIN_WORD` - it
+fell through every existing detector straight to `planner.py`'s fuzzy
+location fallback, which geocoded the word "fishing" to a real place
+called **Fishing Creek**, producing the exact same nonsensical-error bug
+family as Section 14h's "Warninglid" case, just via a different trigger
+word. Confirmed reproducing before any fix:
+```
+error: "Fishing Creek doesn't appear to be a coastal location, so marine
+        fishing/safety advisories don't apply there."
+```
+
+**Decision made** (per this task's explicit framing): extend the
+existing `policy_detection`/`policy_agent` machinery to also handle
+general safety questions, reusing the same retrieval + honest-fallback
+path already built - deliberately NOT a separate ungrounded Gemini-only
+path, since that would break this project's core "never let Gemini
+freely generate ungrounded content" principle (Section 5.1).
+
+**STAGE 1 - detection extended, tested against the existing 4 documents**:
+added `SAFETY_PRACTICE_PATTERNS` to `policy_detection.py` - `best
+practices`, `safety tips`, `how to fish/stay safe(ly)`, `what should I
+do/carry/check/bring before fishing/going to sea/heading out/setting
+sail`, `safety equipment/gear/checklist/precautions`. Architecturally
+different from the existing `why`/`what factors` patterns: those require
+pairing with a `POLICY_DOMAIN_WORD` (a two-part AND) to avoid firing on
+ordinary "why is it windy" questions; the safety-practice patterns are
+checked as a **separate OR branch** instead, since phrases like "best
+practices while fishing" already encode enough fishing/sea/safety
+context on their own, in this app's narrow marine-safety domain, without
+needing a second confirming word.
+
+**Critical safety check - re-tested EVERY previously-verified query
+(19 total) for exact classification match**, not just the new one:
+all 3 normal risk queries (Section 14k/14l), all `test_phase7.py`-style
+queries including Hindi/Marathi, all cyclone policy queries (Section
+14g/14h), all fisheries-productivity queries (Section 14h/14k/14l) -
+**18 of 19 matched exactly**. The one apparent mismatch
+("how does IMD classify cyclone intensity", expected `True` in my ad-hoc
+sweep) turned out to be **my own test-authoring error, not a
+regression** - verified directly that this query never matched any
+`POLICY_QUESTION_PATTERNS` entry (no `why`, no `what is the role`, just
+"how does...") even before today's changes; it was only ever used for
+retrieval-only testing in Section 14g, never confirmed as a `True`
+detection case in project history. Corrected the expectation and
+re-verified: all 19 match.
+
+**Stage 1's honest retrieval check on the 4 pre-existing documents**:
+weak. Directly searched the full extracted text of all 4 documents
+(NDMA guidelines, IMD SOP, both CMFRI fisheries docs) for core
+personal-safety terminology - `life jacket`, `life vest`, `personal
+flotation`, `GPS`, `radio communication`, `distress signal`, `first
+aid`, `safety equipment`, `lifebuoy`: **zero occurrences of anything
+except "GPS" (institutional/tracking context in the cyclone docs, not
+personal safety advice)**. The retrieved chunks for "best practices
+while fishing" were genuinely about net types, vessel regulations, and
+species-specific conservation measures - real content, but not what the
+question asked. **Honest conclusion: none of the 4 documents are
+actually about everyday personal safety practices** - this triggered
+Stage 2.
+
+**STAGE 2 - new document sourced and added**: *Safety at Sea for
+Small-Scale Fishers* (FAO, 2021), verified real via direct `curl` (HTTP
+200, genuine `application/pdf`, 8.4MB) before use, same discipline as
+every prior document:
+`https://openknowledge.fao.org/server/api/core/bitstreams/c24d3838-177d-4574-b194-fdac341088e8/content`.
+Chosen over Indian-specific alternatives (INCOIS, Kerala Fisheries
+Dept) after searching for those first and finding no directly
+downloadable dedicated safety-practices PDF from either - INCOIS's
+material is all interactive WebGIS/app-based (SAMUDRA), and Kerala's
+Fisheries Department page only had regulatory Acts, not a safety
+manual. FAO is a legitimate, globally authoritative body, and this
+manual is specifically about small-scale/artisanal fishing safety - a
+strong match for India's predominantly small-scale fishing sector.
+Verified content relevance BEFORE committing to it: real page-level text
+extraction confirmed 13 occurrences of "life jacket", 12 of "first aid",
+plus "man overboard", "VHF radio", "distress signal" - genuinely on-topic.
+
+Saved as `backend/app/data/policy_docs/fao_safety_at_sea_small_scale_fishers.pdf`,
+added to `scripts/build_policy_index.py`'s `POLICY_DOCS`, re-ran the
+ingestion script: **108 pages (99 with extractable text), 114 new
+chunks, 1,728 chunks total** (up from 1,614).
+
+**Re-tested "best practices while fishing" and variants - genuinely,
+dramatically improved**. Retrieved chunks now include real, specific,
+useful content: guard rails/handrails to prevent falling overboard,
+fire safety basics, "man overboard" distress-signal phrasing and
+semaphore flags, deck safety (wet decks, foldable ladders, coiled
+ropes), personal safety (loose clothing/rings/bangles catching in
+machinery, alcohol/fatigue risks), and a references list pointing to
+further FAO/ILO/IMO safety guidance. Confirmed via `run_query()`:
+`policy_request.is_policy_request: True`, `location_key: None`,
+`error: None` - no more Fishing Creek. Gemini's free-tier quota was
+exhausted for most of this session's re-testing (same recurring Section
+12 behavior), so most real answers came back via the honest raw-chunk
+fallback rather than an LLM-composed summary - but the fallback content
+itself was genuinely relevant this time, unlike Stage 1's weak result.
+One later re-run (during this verification pass) did get a clean
+`mode: llm` response, confirming the full pipeline works end-to-end when
+quota allows.
+
+**Regression - added as permanent tests, not just ad-hoc checks**:
+`backend/tests/test_policy_agent.py` gained Test 6 (the Fishing Creek
+scenario, including a check that the FAO document specifically gets
+cited) and Test 7 (re-confirms the 3 critical-safety-check queries stay
+`False`). `backend/tests/test_policy_retrieval.py` gained the 3 new
+safety queries. Full suite re-run: **`test_policy_agent.py` 35/35
+passing, `test_phase7.py` 20/20 passing** - no regressions.
+
+**Document count is now 5**: NDMA cyclone guidelines, IMD cyclone SOP,
+2 CMFRI fisheries documents, FAO safety-at-sea manual - covering
+cyclone procedure, fisheries policy/productivity, AND general
+sea-safety practices. `app/data/policy_index/` now holds 1,728 chunks
+from ~27MB of source PDFs.
 
 ---
 

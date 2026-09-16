@@ -12,7 +12,10 @@ from app.services.weather_api import fetch_live_wind
 
 
 def weather_agent(state: ORCAState) -> ORCAState:
-    if state.get("error"):
+    # No location resolved (either a genuine error, or a pure policy
+    # question that deliberately skipped location-finding - see
+    # planner.py) - nothing to fetch weather for.
+    if state.get("error") or not state.get("location_data"):
         return {"weather": None}
     loc = state["location_data"]
     day_offset = state.get("day_offset", 0)

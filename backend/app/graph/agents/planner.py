@@ -8,6 +8,7 @@ import re
 from typing import Optional
 
 from app.data.loader import MARINE_DATA, LOCATION_ALIASES
+from app.graph.agents.policy_detection import detect_policy_request
 from app.graph.state import ORCAState
 from app.services.geocoding import geocode_location, is_near_coast
 
@@ -78,6 +79,22 @@ def planner_agent(state: ORCAState) -> ORCAState:
     for key, aliases in LOCATION_ALIASES.items():
         if any(alias in query_lower or alias in query for alias in aliases):
             return {"location_key": key, "location_data": MARINE_DATA[key], "day_offset": day_offset}
+
+    # A pure policy/explanatory question (e.g. "why do fishermen need to
+    # return to shore during a cyclone warning") has no real location to
+    # find, but the fallback extraction below just grabs the LAST leftover
+    # word in the query as a location guess - for a policy question that
+    # word is often a policy term like "warning", not a place. This
+    # actually fuzzy-geocoded "warning" to a real English village called
+    # "Warninglid" and returned a nonsensical location error instead of a
+    # policy answer. Skip the fuzzy fallback entirely for policy questions
+    # that didn't already match a known city above - policy_agent answers
+    # these from indexed documents, where no location is needed. Note this
+    # does mean a policy question naming an unknown (non-demo-city) coastal
+    # town won't get its location resolved either - a deliberate tradeoff
+    # for safety over completeness, documented in PROJECT_CONTEXT.md.
+    if detect_policy_request(query)["is_policy_request"]:
+        return {"location_key": None, "location_data": None, "day_offset": day_offset}
 
     phrase = extract_location_phrase(query)
     if phrase:

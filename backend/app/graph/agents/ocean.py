@@ -24,7 +24,10 @@ from app.services.weather_api import fetch_live_marine
 
 
 def ocean_agent(state: ORCAState) -> ORCAState:
-    if state.get("error"):
+    # No location resolved (either a genuine error, or a pure policy
+    # question that deliberately skipped location-finding - see
+    # planner.py) - nothing to fetch ocean data for.
+    if state.get("error") or not state.get("location_data"):
         return {"ocean": None}
     loc = state["location_data"]
     day_offset = state.get("day_offset", 0)

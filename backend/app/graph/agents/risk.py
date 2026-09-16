@@ -9,7 +9,10 @@ from app.graph.state import ORCAState
 
 
 def risk_agent(state: ORCAState) -> ORCAState:
-    if state.get("error"):
+    # weather/ocean are None either on a genuine error, or for a pure
+    # policy question that deliberately has no location (see planner.py) -
+    # either way, there's no environmental data to score here.
+    if state.get("error") or state.get("weather") is None or state.get("ocean") is None:
         return {"risk": None}
     weather = state["weather"]
     ocean = state["ocean"]

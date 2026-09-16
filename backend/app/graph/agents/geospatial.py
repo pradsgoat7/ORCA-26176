@@ -7,7 +7,10 @@ from app.graph.state import ORCAState
 
 
 def geospatial_agent(state: ORCAState) -> ORCAState:
-    if state.get("error"):
+    # No location resolved (either a genuine error, or a pure policy
+    # question that deliberately skipped location-finding - see
+    # planner.py) - nothing to package here.
+    if state.get("error") or not state.get("location_data"):
         return {"geospatial": None}
     loc = state["location_data"]
     geo = {

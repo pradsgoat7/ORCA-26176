@@ -88,6 +88,22 @@ def _build_route_field(result: dict) -> dict:
     }
 
 
+def _build_policy_field(result: dict) -> dict:
+    """Builds the API's 'policy_answer' field - additive only, alongside
+    whatever else the response already contains (risk data, route data,
+    both, or neither). None when the query wasn't a policy question at
+    all, so existing clients that ignore this field see no change."""
+    policy_answer = result.get("policy_answer")
+    if policy_answer is None:
+        return None
+    return {
+        "is_policy_answer": True,
+        "answer": policy_answer["answer"],
+        "mode": policy_answer["mode"],
+        "sources": policy_answer["sources"],
+    }
+
+
 def _build_route_answer(route_field: dict) -> str:
     """Deterministic, route-focused chat answer - built entirely from
     already-computed numbers, never invented. Includes the required
@@ -108,14 +124,22 @@ def _build_route_answer(route_field: dict) -> str:
 def ask(request: AskRequest):
     result = run_query(request.query)
 
-    # Compute the route field and the final answer text ONCE, consistently,
-    # regardless of which response branch fires below - this is what fixes
-    # a bug where a route-specific error would otherwise get silently
-    # replaced by the main pipeline's more generic error message.
+    # Compute the route field, the policy field, and the final answer text
+    # ONCE, consistently, regardless of which response branch fires below -
+    # this is what fixes a bug where a route-specific error would otherwise
+    # get silently replaced by the main pipeline's more generic error
+    # message, and (additively) does the same for policy answers.
     route_field = _build_route_field(result)
+    policy_field = _build_policy_field(result)
 
     if route_field:
         final_answer = route_field["error"] if route_field["error"] else _build_route_answer(route_field)
+    elif policy_field and not result.get("location_data"):
+        # Pure policy question, no location involved at all - the policy
+        # answer IS the whole response (synthesis_agent already mirrored
+        # this into result["answer"], but read it from policy_field
+        # directly here so this stays correct even if that ever changes).
+        final_answer = policy_field["answer"]
     else:
         final_answer = result["answer"]
 
@@ -127,6 +151,29 @@ def ask(request: AskRequest):
             "language": result.get("language", "en"),
             "risk": None,
             "route": route_field,
+            "policy_answer": policy_field,
+        }
+
+    if not result.get("location_data"):
+        # No location was resolved - either a pure policy question that
+        # deliberately skipped location-finding (see planner.py's guard),
+        # or a route-only request layered on top of one. There's honestly
+        # no risk/weather/ocean data to report here, but this is NOT the
+        # generic "could not identify location" error - policy_answer
+        # and/or route may still carry a real, useful answer, so this
+        # takes its own response shape rather than the error branch above.
+        return {
+            "answer": final_answer,
+            "risk_level": None,
+            "risk_reasons": [],
+            "weather": None,
+            "ocean": None,
+            "map": None,
+            "stakeholder": result.get("stakeholder"),
+            "language": result.get("language", "en"),
+            "risk": None,
+            "route": route_field,
+            "policy_answer": policy_field,
         }
 
     risk_data = result["risk"]
@@ -155,4 +202,6 @@ def ask(request: AskRequest):
         },
         # --- Marine Route Optimization ---
         "route": route_field,
+        # --- Policy RAG (Step 2) ---
+        "policy_answer": policy_field,
     }

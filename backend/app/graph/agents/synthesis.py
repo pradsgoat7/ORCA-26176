@@ -105,6 +105,18 @@ def synthesis_agent(state: ORCAState) -> ORCAState:
     if (state.get("route_request") or {}).get("is_route_request"):
         return {"answer": "(route recommendation - see route details)"}
 
+    # A pure policy question with no location (see planner.py's guard in
+    # policy_detection.py's docstring) has no risk/weather/geospatial data
+    # at all to build the usual prompt from - policy_agent already ran its
+    # OWN Gemini call grounded on the retrieved documents, so just surface
+    # that answer directly rather than crashing on missing risk/geospatial
+    # data or wastefully calling Gemini a second time for nothing.
+    if not state.get("location_data"):
+        policy_answer = state.get("policy_answer")
+        if policy_answer:
+            return {"answer": policy_answer["answer"]}
+        return {"answer": "(policy question - see policy_answer details)"}
+
     if not GOOGLE_API_KEY:
         print("[ORCA] No GOOGLE_API_KEY found in environment - using fallback template.")
         return {"answer": _build_fallback_answer(state)}
@@ -160,7 +172,19 @@ Nearest fishing zone: {pfz_text}
             "contents": [{"parts": [{"text": prompt}]}],
             "generationConfig": {
                 "thinkingConfig": {"thinkingLevel": "low"},  # keeps latency low for a live demo
-                "maxOutputTokens": 1024,
+                # maxOutputTokens is a SHARED budget across hidden "thinking"
+                # tokens AND the visible answer, not a cap on the answer
+                # alone - confirmed by direct investigation (2026-09-16):
+                # even at thinkingLevel "low", thoughtsTokenCount varied
+                # 595-941 tokens call-to-call for the exact same Chennai
+                # prompt, and whenever thinking+visible-answer together
+                # approached the old 1024 cap, Gemini returned
+                # finishReason=MAX_TOKENS with the answer cut off mid-
+                # sentence (~40% of Chennai calls in a real sample - not
+                # rare). 2048 gives >2x headroom over the highest observed
+                # thinking usage so this doesn't recur. See
+                # PROJECT_CONTEXT.md for the full investigation.
+                "maxOutputTokens": 2048,
             },
         }
         # Hard timeout: if the API is ever slow, fail fast into the instant

@@ -12,6 +12,8 @@ from app.graph.agents.language import language_node
 from app.graph.agents.stakeholder import stakeholder_agent
 from app.graph.agents.route_detection import route_detection_agent
 from app.graph.agents.route_planning import route_planning_agent
+from app.graph.agents.policy_detection import policy_detection_agent
+from app.graph.agents.policy_agent import policy_agent
 from app.graph.agents.planner import planner_agent
 from app.graph.agents.weather import weather_agent
 from app.graph.agents.ocean import ocean_agent
@@ -27,6 +29,8 @@ def build_graph():
     graph.add_node("stakeholder_node", stakeholder_agent)
     graph.add_node("route_detection_node", route_detection_agent)
     graph.add_node("route_planning_node", route_planning_agent)
+    graph.add_node("policy_detection_node", policy_detection_agent)
+    graph.add_node("policy_agent_node", policy_agent)
     graph.add_node("weather_node", weather_agent)
     graph.add_node("ocean_node", ocean_agent)
     graph.add_node("risk_node", risk_agent)
@@ -43,6 +47,7 @@ def build_graph():
     graph.add_edge("planner_node", "geospatial_node")
     graph.add_edge("planner_node", "stakeholder_node")
     graph.add_edge("planner_node", "route_detection_node")
+    graph.add_edge("planner_node", "policy_detection_node")
 
     # Risk agent acts as the sync point: it only reasons over weather+ocean
     # data, but waiting on all these edges (including geospatial and
@@ -60,8 +65,17 @@ def build_graph():
     # depth as risk_node to avoid a sync-race bug.
     graph.add_edge("route_detection_node", "route_planning_node")
 
+    # Same reasoning for policy_agent_node: it depends on
+    # policy_detection_node's output, so it chains after it rather than
+    # being a same-depth sibling of weather/ocean/etc - then joins
+    # synthesis_node at the same depth as risk_node/route_planning_node
+    # (see PROJECT_CONTEXT.md Section 6b on why every branch feeding a
+    # shared barrier node must be at the same depth).
+    graph.add_edge("policy_detection_node", "policy_agent_node")
+
     graph.add_edge("risk_node", "synthesis_node")
     graph.add_edge("route_planning_node", "synthesis_node")
+    graph.add_edge("policy_agent_node", "synthesis_node")
     graph.add_edge("synthesis_node", END)
 
     return graph.compile()

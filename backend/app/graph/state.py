@@ -14,6 +14,8 @@ class ORCAState(TypedDict, total=False):
     stakeholder: Optional[dict]
     route_request: Optional[dict]
     route_plan: Optional[dict]
+    policy_request: Optional[dict]
+    policy_answer: Optional[dict]
     location_key: Optional[str]
     location_data: Optional[dict]
     weather: Optional[dict]

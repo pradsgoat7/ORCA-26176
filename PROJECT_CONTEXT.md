@@ -118,7 +118,9 @@ backend/
     │   │                     calculate_wind_risk, calculate_cyclone_risk,
     │   │                     calculate_lightning_risk, calculate_all_metrics,
     │   │                     calculate_overall_risk, classify_level,
-    │   │                     STAKEHOLDER_WEIGHTS, RECOMMENDATIONS
+    │   │                     STAKEHOLDER_WEIGHTS, RECOMMENDATIONS,
+    │   │                     apply_safety_override(), calculate_confidence_score()
+    │   │                     - see Section 14n
     │   └── route_engine.py   Pure geometry + route comparison. NO network calls.
     │                         generate_candidate_routes, estimate_travel_time_minutes,
     │                         score_route, select_recommended_route,
@@ -449,13 +451,21 @@ Body: `{"query": "..."}`. Response (success case):
     "overall_score": 19, "overall_level": "LOW",
     "metrics": [{"name": "Wave Risk", "key": "wave_risk", "score": 45}, ...],
     "reasons": [{"factor": "Wave", "score": 45, "reason": "..."}],
-    "recommendation": "..."
+    "recommendation": "...",
+    // --- Section 14n: government/hard-safety override layer, additive ---
+    "pre_override_level": "LOW",     // what the weighted calculation alone produced
+    "override_fired": false,         // true if a hard-safety rule matched (see Section 14n)
+    "override_reasons": []           // e.g. ["Active cyclone alert ... forces CRITICAL..."]
   },
-  "route": null  // or a full route object if this was a route request - see routes.py
+  "route": null,     // or a full route object if this was a route request - see routes.py
+  "policy_answer": null,  // or {is_policy_answer, answer, mode, sources} - see Section 14h
+  "confidence": {    // Section 14n - null when there's no weather/ocean data to score
+    "confidence_score": 100, "completeness": 1.0, "freshness": 1.0, "agreement": 1.0
+  }
 }
 ```
 On error (`result.get("error")` truthy — e.g., unresolvable location):
-`{"answer": ..., "error": "...", "stakeholder": {...}, "language": "en", "risk": null, "route": null}`
+`{"answer": ..., "error": "...", "stakeholder": {...}, "language": "en", "risk": null, "route": null, "policy_answer": null, "confidence": null}`
 
 **Important**: the `route` field is present (non-null) whenever the query
 was a route request, REGARDLESS of whether the top-level `error` field is
@@ -1746,6 +1756,144 @@ passing, `test_phase7.py` 20/20 passing** - no regressions.
 cyclone procedure, fisheries policy/productivity, AND general
 sea-safety practices. `app/data/policy_index/` now holds 1,728 chunks
 from ~27MB of source PDFs.
+
+### 14n. Risk Engine additions: hard-safety override layer + confidence score — DONE (2026-09-17)
+
+Two new PURE, deterministic functions added to `app/core/risk_engine.py`
+(no network calls, same style as `calculate_all_metrics`/
+`classify_level`), wired into `risk_agent`. Both are built ONLY from
+fields ORCA actually has - per this task's own explicit instruction,
+neither fabricates a check against an "INCOIS High Wave Red" or "IMD
+Orange Warning" feed that doesn't exist; every rule/signal below cites
+the real field it's based on.
+
+**1. Government/hard-safety override layer** -
+`apply_safety_override(overall_score, overall_level, weather, ocean)`.
+Applied AFTER the normal stakeholder-weighted calculation, and can only
+ESCALATE the level, never de-escalate it (`_escalate()` always keeps the
+more severe of the two). Three rules, each tied to a real field:
+
+| Rule | Real signal | Effect |
+|---|---|---|
+| Active cyclone alert | `weather['cyclone_alert']` (mock for demo cities like Chennai - Section 4) | Forces **CRITICAL** |
+| Very rough sea | `ocean['wave_height_m']` (LIVE, Open-Meteo) ≥ `VERY_ROUGH_SEA_THRESHOLD_M` | Forces at least **HIGH** |
+| Lightning detected | `weather['lightning_alert']` (LIVE-derived from Open-Meteo's WMO weather code - Section 4) | Forces at least **MODERATE** |
+
+**The wave threshold was researched, not guessed**: the real, standard
+**Douglas Sea Scale** (WMO Sea State Code) defines State 6, "Very Rough",
+as **4-6 metres** - confirming the task's own estimate ("I believe very
+rough is roughly 4-6m"). `VERY_ROUGH_SEA_THRESHOLD_M = 4.0` uses the
+lower bound of that real band, so the override fires as soon as a query
+genuinely enters "very rough" territory.
+
+**Design choice, documented in code**: `override_fired` is `True`
+whenever a hard-safety CONDITION is true, even if the weighted score had
+already independently reached that level or higher - this is deliberate,
+so a user can always see "yes, there genuinely is an active cyclone
+alert" as a visible fact, not just infer it from the level number never
+changing. `apply_safety_override` only returns the escalated LEVEL and
+the trigger reasons - it does not touch `overall_score` (which still
+reflects the weighted calculation alone) and does not regenerate the
+recommendation text; `risk_agent` does that small integration step
+itself (re-looking up `RECOMMENDATIONS[stakeholder_type][final_level]`
+when the level actually changed), keeping the pure risk-engine function
+narrowly scoped to exactly what the task asked for.
+
+**New fields in the risk dict/API response** (all additive):
+`overall_level` now reflects the FINAL (possibly escalated) level -
+this was a deliberate choice, not an oversight: leaving it at the raw
+weighted level while a hard override said otherwise would mean the
+frontend badge, the Gemini synthesis prompt, and the recommendation text
+all under-state real danger, which would be a genuine safety bug, not
+just a missing field. `pre_override_level` preserves what the weighted
+calculation alone produced, so nothing is hidden. `override_fired`
+(bool) and `override_reasons` (list of strings, empty if nothing fired)
+make the override visible and explainable, never silent.
+
+**2. Confidence score** - `calculate_confidence_score(weather, ocean)`,
+40% completeness / 30% freshness / 30% agreement, exactly the weighting
+given in the task:
+
+- **Completeness (40%)**: fraction of 6 expected fields
+  (`wind_speed_kmph`, `wave_height_m`, `sea_surface_temp_c`,
+  `salinity_psu`, `current_speed_ms`, `mixed_layer_depth_m`) that are
+  non-`None`. Answers "do we have a number to show", not "is it real" -
+  `sea_surface_temp_c` counts here even when it's the `DEFAULT_SST_C`
+  mock, since a number is still present.
+- **Freshness (30%)**: fraction of 5 real, separately-tracked signals
+  reporting live - `weather['wind_source'] == 'live'`,
+  `ocean['ocean_source'] == 'live'`, and (as an honest proxy, since these
+  3 fields have NO mock fallback at all) whether `salinity_psu`,
+  `current_speed_ms`, and `mixed_layer_depth_m` each came back non-`None`.
+  **Deliberately excludes `sea_surface_temp_c`**: unlike wave height,
+  the ocean dict has no separate flag recording whether SST came from
+  MOSDAC (live), Open-Meteo (live), or the mock fallback - guessing would
+  be dishonest, so it's left out rather than assumed. This is an
+  intentional, documented gap, not an oversight.
+- **Agreement (30%) - HONEST REINTERPRETATION, explicitly flagged as a
+  simplification per the task's own request**: the original idea ("do
+  two independent measurements of the same variable agree") doesn't
+  apply to ORCA's real data - Open-Meteo and MOSDAC measure DIFFERENT
+  variables (wind/wave vs temp/salinity/current/MLD), never the same one
+  twice, so there is nothing to literally cross-check numerically.
+  Implemented instead as: are BOTH of ORCA's genuinely independent live
+  systems (Open-Meteo, MOSDAC) actually up and returning real data this
+  call, rather than one succeeding while the other silently falls back?
+  Computed as the average of two system-level success fractions -
+  Open-Meteo's (wind_source + ocean_source, /2) and MOSDAC's (salinity +
+  current + MLD non-None, /3). **Because this is built from the exact
+  same underlying source-availability booleans as freshness, the two
+  numbers will correlate closely in practice** - that correlation is an
+  honest, direct consequence of not having two measurements of the same
+  physical variable to compare, not a bug. Documented clearly in the
+  function's own docstring so a future reader isn't confused by the
+  near-duplication.
+
+**API contract change**: new top-level `confidence` field on every
+`/ask` response (`{confidence_score, completeness, freshness,
+agreement}`, all additive, `null` when there's no weather/ocean data to
+score e.g. the error and pure-policy-question response shapes). New
+`risk.pre_override_level` / `risk.override_fired` /
+`risk.override_reasons` fields, additive alongside the existing `risk`
+fields.
+
+**Testing - real output, not "should work"**:
+- **Normal calm query (Kochi)**: `override_fired: false`,
+  `pre_override_level == overall_level == "LOW"`, `confidence_score: 100`
+  (all 6 fields present, all 5 freshness signals live, full agreement) -
+  confirmed no override noise on a genuinely calm day.
+- **Chennai cyclone scenario**: weighted score alone was 45/100
+  (`pre_override_level: "MODERATE"`) - the override correctly forced
+  `overall_level: "CRITICAL"`, `override_fired: true`,
+  `override_reasons: ["Active cyclone alert (weather.cyclone_alert)
+  forces CRITICAL, regardless of the weighted score."]`, and the
+  recommendation text was correctly regenerated to
+  `"Do not go to sea. Conditions are extremely hazardous."` - a real,
+  concrete demonstration of exactly the "never dilute a real cyclone
+  alert into a moderate-looking average" behavior this was built for.
+- **Simulated "Very Rough" wave scenario** (`wave_height_m=4.5`, mocked
+  via `patch.object` on `weather_module.fetch_live_wind` /
+  `ocean_module.fetch_live_marine`, no cyclone/lightning): weighted score
+  alone was 41/100 (`pre_override_level: "MODERATE"`) - override
+  correctly forced `overall_level: "HIGH"`, citing the real Douglas Sea
+  Scale threshold by name in `override_reasons`.
+  Verified via the real FastAPI `TestClient` `/ask` endpoint too (not
+  just `run_query()` directly) - HTTP 200, all new fields present and
+  correctly serialized.
+- **Simulated MOSDAC-unreachable scenario** (patched
+  `fetch_ocean_temperature_c`/`fetch_salinity_psu`/
+  `fetch_mixed_layer_depth_m`/`fetch_current_speed_ms` to return `None`):
+  confidence dropped from **100 → 47** compared to the same query with
+  MOSDAC live - `completeness: 0.5` (3 of 6 fields None), `freshness:
+  0.4` (2 of 5 signals live), `agreement: 0.5` (Open-Meteo fully up,
+  MOSDAC fully down) - a real, meaningful, correctly-explained drop, not
+  a token gesture.
+- **Full regression suite re-run, zero regressions**:
+  `python3 -m tests.test_phase7` (20/20), `python3 -m
+  tests.test_policy_agent` (35/35), `python3 -m
+  tests.test_mosdac_ocean_eye` (21/21), `python3 -m
+  tests.test_boundary_geofencing` (all scenarios still correctly
+  warn/stay-quiet as before).
 
 ---
 

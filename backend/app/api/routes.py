@@ -152,6 +152,7 @@ def ask(request: AskRequest):
             "risk": None,
             "route": route_field,
             "policy_answer": policy_field,
+            "confidence": None,
         }
 
     if not result.get("location_data"):
@@ -174,6 +175,7 @@ def ask(request: AskRequest):
             "risk": None,
             "route": route_field,
             "policy_answer": policy_field,
+            "confidence": None,
         }
 
     risk_data = result["risk"]
@@ -199,9 +201,15 @@ def ask(request: AskRequest):
             "metrics": risk_data.get("metrics", []),
             "reasons": risk_data.get("structured_reasons", []),
             "recommendation": risk_data.get("recommendation"),
+            # --- Government/hard-safety override layer ---
+            "pre_override_level": risk_data.get("pre_override_level"),
+            "override_fired": risk_data.get("override_fired", False),
+            "override_reasons": risk_data.get("override_reasons", []),
         },
         # --- Marine Route Optimization ---
         "route": route_field,
         # --- Policy RAG (Step 2) ---
         "policy_answer": policy_field,
+        # --- Confidence score (completeness/freshness/agreement) ---
+        "confidence": result.get("confidence"),
     }

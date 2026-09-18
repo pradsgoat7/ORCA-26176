@@ -1,10 +1,12 @@
 """
 Risk agent - computes both the legacy level/score/reasons (kept for
 backward compatibility with the fallback templates and frontend) and the
-newer structured Risk Engine metrics (stakeholder-weighted overall score).
+newer structured Risk Engine metrics (stakeholder-weighted overall score),
+then applies the hard-safety override layer and computes a confidence
+score on top of that (see PROJECT_CONTEXT.md for the full write-up).
 """
 
-from app.core.risk_engine import calculate_all_metrics
+from app.core.risk_engine import RECOMMENDATIONS, apply_safety_override, calculate_all_metrics, calculate_confidence_score
 from app.graph.state import ORCAState
 
 
@@ -13,7 +15,7 @@ def risk_agent(state: ORCAState) -> ORCAState:
     # policy question that deliberately has no location (see planner.py) -
     # either way, there's no environmental data to score here.
     if state.get("error") or state.get("weather") is None or state.get("ocean") is None:
-        return {"risk": None}
+        return {"risk": None, "confidence": None}
     weather = state["weather"]
     ocean = state["ocean"]
 
@@ -51,6 +53,20 @@ def risk_agent(state: ORCAState) -> ORCAState:
     stakeholder_type = stakeholder_info.get("type", "general")
     structured = calculate_all_metrics(weather, ocean, stakeholder_type)
 
+    # Hard-safety override layer, applied AFTER the weighted calculation -
+    # can only escalate overall_level, never de-escalate it (see
+    # apply_safety_override's docstring / PROJECT_CONTEXT.md). The
+    # underlying overall_score is NOT touched - only the level
+    # classification (and the recommendation text derived from it) can be
+    # escalated, so overall_score always still reflects the weighted
+    # calculation alone.
+    override = apply_safety_override(structured["overall_score"], structured["overall_level"], weather, ocean)
+    final_level = override["level"]
+    recommendations = RECOMMENDATIONS.get(stakeholder_type, RECOMMENDATIONS["general"])
+    final_recommendation = recommendations[final_level] if final_level != structured["overall_level"] else structured["recommendation"]
+
+    confidence = calculate_confidence_score(weather, ocean)
+
     return {
         "risk": {
             "level": level,
@@ -59,7 +75,13 @@ def risk_agent(state: ORCAState) -> ORCAState:
             "metrics": structured["metrics"],
             "structured_reasons": structured["reasons"],
             "overall_score": structured["overall_score"],
-            "overall_level": structured["overall_level"],
-            "recommendation": structured["recommendation"],
-        }
+            "overall_level": final_level,
+            # What the weighted calculation alone produced, BEFORE any
+            # hard-safety override - kept for transparency, never hidden.
+            "pre_override_level": structured["overall_level"],
+            "override_fired": override["override_fired"],
+            "override_reasons": override["override_reasons"],
+            "recommendation": final_recommendation,
+        },
+        "confidence": confidence,
     }

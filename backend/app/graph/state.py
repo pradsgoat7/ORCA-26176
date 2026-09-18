@@ -21,6 +21,7 @@ class ORCAState(TypedDict, total=False):
     weather: Optional[dict]
     ocean: Optional[dict]  # includes salinity_psu, current_speed_ms, mixed_layer_depth_m (MOSDAC Ocean-Eye)
     risk: Optional[dict]
+    confidence: Optional[dict]
     geospatial: Optional[dict]
     answer: Optional[str]
     error: Optional[str]

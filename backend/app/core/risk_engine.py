@@ -201,3 +201,181 @@ def calculate_overall_risk(raw_scores: dict, stakeholder_type: str) -> dict:
         "recommendation": recommendation,
         "weights_used": weights,
     }
+
+
+# ---------- Government/hard-safety override layer ----------
+
+# Douglas Sea Scale (the real, standard WMO sea-state code for describing
+# sea surface roughness by wave height) - State 6, "Very Rough", is
+# 4-6 metres. This is a genuine, citable maritime standard, unlike an
+# invented "INCOIS Red Warning" threshold we don't actually have a feed
+# for. The trigger uses the LOWER bound (4.0m) so the override fires as
+# soon as a query genuinely enters "very rough" territory, not only once
+# it's near the top of that band.
+VERY_ROUGH_SEA_THRESHOLD_M = 4.0
+
+_LEVEL_ORDER = ["LOW", "MODERATE", "HIGH", "CRITICAL"]
+
+
+def _escalate(level: str, minimum: str) -> str:
+    """Returns whichever of level/minimum is more severe - this is what
+    guarantees an override can only ESCALATE, never de-escalate, a level
+    that was already higher from the normal weighted calculation."""
+    return minimum if _LEVEL_ORDER.index(minimum) > _LEVEL_ORDER.index(level) else level
+
+
+def apply_safety_override(overall_score: int, overall_level: str, weather: dict, ocean: dict) -> dict:
+    """Hard safety rules applied AFTER the normal stakeholder-weighted
+    calculation (calculate_overall_risk) - these can only ESCALATE the
+    level, never de-escalate it, and every rule here is based ENTIRELY on
+    real fields ORCA actually has. Deliberately does NOT check for a
+    fabricated "INCOIS High Wave Red Alert" or "IMD Orange Warning" feed -
+    ORCA has no such feeds (see PROJECT_CONTEXT.md Section 4 for exactly
+    what's live vs mock) - every rule below cites the real signal it's
+    actually based on:
+
+    - weather['cyclone_alert'] (mock for demo cities, e.g. Chennai - see
+      Section 4) True -> forces CRITICAL. A real active cyclone alert is a
+      hard stop that should never get diluted into a moderate-looking
+      average by calm wave/wind numbers elsewhere in the weighted score.
+    - ocean['wave_height_m'] (LIVE, Open-Meteo Marine API) at or above
+      VERY_ROUGH_SEA_THRESHOLD_M (4.0m - Douglas Sea Scale "Very Rough",
+      the real WMO Sea State 6 threshold) -> forces at least HIGH.
+      Genuinely rough seas are a hard safety concern regardless of how the
+      weighted average of wave/wind/cyclone/lightning happens to land.
+    - weather['lightning_alert'] (LIVE-DERIVED from Open-Meteo's WMO
+      weather code - Section 4) True -> forces at least MODERATE.
+      Lightning is an immediate, binary hazard that shouldn't be averaged
+      away by good wave/wind conditions.
+
+    Returns the (possibly escalated) level plus an explicit, always-visible
+    record of which rules matched and why - "override_fired" is True
+    whenever at least one hard-safety CONDITION is true, even if the
+    weighted score had already reached that level or higher on its own
+    (so a user can always see "yes, there genuinely is an active cyclone
+    alert" as a fact, not just infer it from the number never changing).
+    Never silent - a user seeing CRITICAL should know whether that's the
+    normal weighted score, a hard override, or both."""
+    weather = weather or {}
+    ocean = ocean or {}
+
+    final_level = overall_level
+    reasons = []
+
+    if weather.get("cyclone_alert"):
+        final_level = _escalate(final_level, "CRITICAL")
+        reasons.append(
+            "Active cyclone alert (weather.cyclone_alert) forces CRITICAL, regardless of the weighted score."
+        )
+
+    wave_height = ocean.get("wave_height_m")
+    if wave_height is not None and wave_height >= VERY_ROUGH_SEA_THRESHOLD_M:
+        final_level = _escalate(final_level, "HIGH")
+        reasons.append(
+            f"Wave height ({wave_height} m) has reached 'Very Rough' on the Douglas Sea Scale "
+            f"(WMO Sea State 6, {VERY_ROUGH_SEA_THRESHOLD_M}m+) - forces at least HIGH."
+        )
+
+    if weather.get("lightning_alert"):
+        final_level = _escalate(final_level, "MODERATE")
+        reasons.append("Lightning activity detected (weather.lightning_alert) - forces at least MODERATE.")
+
+    return {
+        "level": final_level,
+        "override_fired": len(reasons) > 0,
+        "override_reasons": reasons,  # empty list if nothing fired
+    }
+
+
+# ---------- Confidence score ----------
+
+# Fields checked for "completeness" - do we have a NUMBER to show the
+# user, regardless of whether it's live or mock. sea_surface_temp_c is
+# included here even though ocean_agent guarantees it's never None (it
+# falls back to DEFAULT_SST_C mock if both MOSDAC and Open-Meteo fail) -
+# that's correct for completeness ("is there a number") even though the
+# same field is deliberately EXCLUDED from freshness below (see there for
+# why).
+_COMPLETENESS_WEATHER_FIELDS = ["wind_speed_kmph"]
+_COMPLETENESS_OCEAN_FIELDS = [
+    "wave_height_m", "sea_surface_temp_c", "salinity_psu",
+    "current_speed_ms", "mixed_layer_depth_m",
+]
+
+
+def calculate_confidence_score(weather: dict, ocean: dict) -> dict:
+    """Genuinely-adapted confidence score (40% completeness / 30%
+    freshness / 30% agreement), built ONLY from real, already-available
+    signals - no fabricated "sensor uptime" or "data quality API" we don't
+    have. See PROJECT_CONTEXT.md for the honest reasoning behind each
+    component, especially "agreement" (see below - it's a documented
+    simplification of the original idea, not the original idea itself).
+
+    - Completeness (40%): fraction of the 6 fields above that are
+      non-None. Measures "do we have a number to show", not "is it real".
+    - Freshness (30%): fraction of ORCA's real, separately-tracked
+      data-source signals that report "live" rather than "mock"/missing -
+      weather['wind_source'], ocean['ocean_source'], and (as a proxy,
+      since these 3 fields have NO mock fallback at all - see ocean_agent)
+      whether each MOSDAC-sourced field came back non-None. Deliberately
+      does NOT include sea_surface_temp_c: unlike wave_height_m (which has
+      an explicit ocean_source flag), the ocean dict does not separately
+      record whether SST came from MOSDAC (live), Open-Meteo (live), or
+      the DEFAULT_SST_C mock fallback - guessing its provenance here would
+      be dishonest, so it's excluded rather than assumed.
+    - Agreement (30%): HONEST REINTERPRETATION, explicitly flagged as a
+      simplification. The original idea - "do two independent
+      measurements of the SAME variable agree" - doesn't apply to ORCA's
+      real data: Open-Meteo and MOSDAC measure DIFFERENT variables
+      (wind/wave vs temp/salinity/current/MLD), never the same one twice,
+      so there is nothing to literally cross-check numerically. Instead,
+      this treats "agreement" as: are BOTH of ORCA's genuinely independent
+      live systems (Open-Meteo, MOSDAC) actually up and returning real
+      data this call, rather than one succeeding while the other silently
+      falls back? This is a proxy for overall pipeline health, not a
+      literal value comparison. Because it's built from the SAME
+      underlying source-availability signals as freshness above, it will
+      correlate closely with freshness in practice - that correlation is
+      an honest, direct consequence of not having two measurements of the
+      same physical variable to compare, not a bug."""
+    weather = weather or {}
+    ocean = ocean or {}
+
+    fields = [weather.get(f) for f in _COMPLETENESS_WEATHER_FIELDS] + \
+             [ocean.get(f) for f in _COMPLETENESS_OCEAN_FIELDS]
+    completeness = sum(1 for v in fields if v is not None) / len(fields)
+
+    freshness_signals = [
+        weather.get("wind_source") == "live",
+        ocean.get("ocean_source") == "live",
+        ocean.get("salinity_psu") is not None,
+        ocean.get("current_speed_ms") is not None,
+        ocean.get("mixed_layer_depth_m") is not None,
+    ]
+    freshness = sum(1 for s in freshness_signals if s) / len(freshness_signals)
+
+    # Open-Meteo "system" success = fraction of its own two feeds (wind,
+    # wave) that came back live. MOSDAC "system" success = fraction of its
+    # three independently-fetched layers (salinity, current, MLD) that
+    # came back non-None. Averaging these two system-level fractions is
+    # the "both independent systems up" proxy described above.
+    open_meteo_success = sum([
+        weather.get("wind_source") == "live",
+        ocean.get("ocean_source") == "live",
+    ]) / 2
+    mosdac_success = sum([
+        ocean.get("salinity_psu") is not None,
+        ocean.get("current_speed_ms") is not None,
+        ocean.get("mixed_layer_depth_m") is not None,
+    ]) / 3
+    agreement = (open_meteo_success + mosdac_success) / 2
+
+    confidence_score = round(100 * (0.40 * completeness + 0.30 * freshness + 0.30 * agreement))
+    confidence_score = max(0, min(100, confidence_score))
+
+    return {
+        "confidence_score": confidence_score,
+        "completeness": round(completeness, 2),
+        "freshness": round(freshness, 2),
+        "agreement": round(agreement, 2),
+    }

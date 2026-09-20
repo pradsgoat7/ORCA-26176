@@ -81,3 +81,24 @@ body { margin: 0; display: flex; height: 100vh; background: #0d1b2a; }
   border-bottom: 3px solid #d500f9; color: #6a0080; font-size: 12px;
   font-weight: bold; line-height: 1.4; animation: boundary-pulse 1.6s ease-in-out infinite;
 }
+
+/* Marine Protected Area geofencing warning (Section 14o): deliberately a
+   DIFFERENT color from the maritime boundary warning above - teal, not
+   magenta - so a user can tell "crossed an international boundary" apart
+   from "near a protected conservation area" at a glance. Same
+   marching-ants + pulse motion language for visual consistency with the
+   boundary-warning pattern, just a different color and dash rhythm. */
+.mpa-warning-overlay {
+  animation: mpa-marching-ants 0.8s linear infinite, boundary-pulse 1.6s ease-in-out infinite;
+}
+@keyframes mpa-marching-ants {
+  to { stroke-dashoffset: -11; }
+}
+.mpa-warning-popup {
+  display: inline-block; margin-top: 4px; color: #00695c; font-weight: bold;
+}
+.route-mpa-banner {
+  margin: -14px -14px 12px; padding: 10px 14px; background: #e0f7f4;
+  border-bottom: 3px solid #00bfa5; color: #00695c; font-size: 12px;
+  font-weight: bold; line-height: 1.4; animation: boundary-pulse 1.6s ease-in-out infinite;
+}

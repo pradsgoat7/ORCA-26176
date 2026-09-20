@@ -144,6 +144,35 @@ def check_boundary_proximity(route: dict, waypoint_distances_km: list, threshold
     return route
 
 
+def check_mpa_proximity(route: dict, waypoint_distances_km: list, threshold_km: float) -> dict:
+    """Flags whether this route gets within threshold_km of a Marine
+    Protected Area boundary at ANY waypoint - same pattern as
+    check_boundary_proximity() above, but kept as a SEPARATE function with
+    its OWN fields (mpa_distance_km/mpa_warning) rather than reusing the
+    EEZ one's field names. Deliberate design choice (see PROJECT_CONTEXT.md
+    Section 14o): crossing an international boundary (legal/territorial)
+    and entering a protected conservation area (environmental/fishing-
+    restriction) are different kinds of problems with different real-world
+    consequences, so a route can and should be able to show BOTH warnings
+    independently rather than one flag overwriting or conflating the other.
+
+    Honestly handles MPA data being unavailable (every entry in
+    waypoint_distances_km is None, e.g. india_mpa.geojson hasn't been
+    fetched yet - Section 14o): sets mpa_distance_km/mpa_warning to None
+    rather than silently defaulting to 'no warning', so a caller can tell
+    'confirmed no nearby MPA' apart from 'we don't know yet'."""
+    known_distances = [d for d in waypoint_distances_km if d is not None]
+    if not known_distances:
+        route["mpa_distance_km"] = None
+        route["mpa_warning"] = None
+        return route
+
+    closest_km = round(min(known_distances), 2)
+    route["mpa_distance_km"] = closest_km
+    route["mpa_warning"] = closest_km <= threshold_km
+    return route
+
+
 def build_route_explanation(recommended: dict, all_routes: list) -> str:
     """Deterministic explanation built from the actual computed numbers -
     never invented. Can be spoken as-is, or reworded later by the LLM

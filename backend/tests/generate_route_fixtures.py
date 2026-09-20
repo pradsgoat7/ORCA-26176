@@ -23,19 +23,37 @@ Usage:
 import json
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from unittest.mock import patch
 
+from shapely.geometry import Polygon
+
+import app.services.marine_protected_areas as mpa_module
 from app.api.routes import _build_route_field
 from app.config import BACKEND_DIR, DEFAULT_WIND_SPEED_KMPH, DEFAULT_WAVE_HEIGHT_M, THUNDERSTORM_CODES
 from app.core.risk_engine import calculate_all_metrics, classify_level
 from app.core.route_engine import (
     generate_candidate_routes, estimate_travel_time_minutes,
     score_route, select_recommended_route, build_route_explanation,
-    check_boundary_proximity,
+    check_boundary_proximity, check_mpa_proximity,
 )
 from app.services.maritime_boundary import distance_to_eez_boundary_km, DEFAULT_BOUNDARY_WARNING_THRESHOLD_KM
+from app.services.marine_protected_areas import distance_to_nearest_mpa_km, DEFAULT_MPA_WARNING_THRESHOLD_KM
 from app.services.weather_api import fetch_live_wind, fetch_live_marine
 
 OUTPUT_PATH = BACKEND_DIR.parent / "frontend" / "tests" / "route_fixtures.json"
+
+# This repo has no real WDPA/india_mpa.geojson data (Section 14o - no API
+# token available). For the "mpa_warning" scenario below, the real
+# distance_to_nearest_mpa_km() is patched to use this small, clearly-
+# labeled TEST-ONLY polygon approximating Gulf of Mannar Marine National
+# Park's real, Wikipedia-cited extent (same fixture as
+# tests/test_marine_protected_areas.py - see that file's docstring for
+# the full reasoning). Only the "mpa_warning" scenario uses this patch;
+# "boundary_warning" and "no_warning" still call the real (currently
+# data-less, honestly-None) MPA lookup, matching production behavior.
+_TEST_GULF_OF_MANNAR_POLYGON = Polygon([
+    (78.20, 8.75), (79.25, 8.75), (79.25, 9.25), (78.20, 9.25), (78.20, 8.75),
+])
 
 
 def build_route_plan(origin: dict, destination: dict, stakeholder_type: str = "fisherman") -> dict:
@@ -88,6 +106,11 @@ def build_route_plan(origin: dict, destination: dict, stakeholder_type: str = "f
         ]
         check_boundary_proximity(route, waypoint_boundary_distances, DEFAULT_BOUNDARY_WARNING_THRESHOLD_KM)
 
+        waypoint_mpa_distances = [
+            distance_to_nearest_mpa_km(wp["lat"], wp["lon"]) for wp in route["waypoints"]
+        ]
+        check_mpa_proximity(route, waypoint_mpa_distances, DEFAULT_MPA_WARNING_THRESHOLD_KM)
+
     recommended = select_recommended_route(candidate_routes)
     explanation = build_route_explanation(recommended, candidate_routes)
 
@@ -113,18 +136,31 @@ SCENARIOS = {
         "origin": {"lat": 9.9312, "lon": 76.2673, "name": "Kochi"},
         "destination": {"lat": 9.75, "lon": 75.95, "name": "PFZ near Kochi coast"},
     },
+    # Mandapam (a real coastal town) -> a point inside the TEST Gulf of
+    # Mannar polygon above - see the module-level comment. Uses the
+    # mocked distance_to_nearest_mpa_km, NOT the real (currently data-
+    # less) one - see build_route_plan()'s caller below.
+    "mpa_warning": {
+        "origin": {"lat": 9.2876, "lon": 79.1367, "name": "Mandapam"},
+        "destination": {"lat": 9.00, "lon": 78.80, "name": "Gulf of Mannar test area (Section 14o)"},
+    },
 }
 
 if __name__ == "__main__":
     fixtures = {}
     for key, s in SCENARIOS.items():
-        route_plan = build_route_plan(s["origin"], s["destination"])
+        if key == "mpa_warning":
+            with patch.object(mpa_module, "_get_mpa_boundary", side_effect=lambda: _TEST_GULF_OF_MANNAR_POLYGON.boundary):
+                route_plan = build_route_plan(s["origin"], s["destination"])
+        else:
+            route_plan = build_route_plan(s["origin"], s["destination"])
         route_field = _build_route_field({"route_plan": route_plan})
         fixtures[key] = route_field
         print(f"=== {key} ===")
         for r in route_field["candidate_routes"]:
             print(f"  {r['id']:12s} risk={r['route_risk_score']:3d}({r['route_risk_level']:8s}) "
-                  f"boundary_warning={r['boundary_warning']!s:5s} boundary_distance_km={r['boundary_distance_km']}")
+                  f"boundary_warning={r['boundary_warning']!s:5s} boundary_distance_km={r['boundary_distance_km']} "
+                  f"mpa_warning={r['mpa_warning']!s:5s} mpa_distance_km={r['mpa_distance_km']}")
         print(f"  recommended_route_id={route_field['recommended_route_id']}")
         print()
 

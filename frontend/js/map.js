@@ -124,6 +124,7 @@ function renderRoute(routeField) {
     const color = levelColor(route.route_risk_level);
     const isRecommended = route.is_recommended;
     const hasBoundaryWarning = !!route.boundary_warning;
+    const hasMpaWarning = !!route.mpa_warning;
 
     // Recommended: solid, thick, high opacity. Alternatives: dashed,
     // thinner, lower opacity - color still reflects each route's OWN
@@ -155,15 +156,41 @@ function renderRoute(routeField) {
       routeLayers.push(boundaryOverlay);
     }
 
+    // Marine Protected Area geofencing warning (Section 14o): a
+    // DIFFERENT kind of hazard than both the risk-level color AND the
+    // maritime boundary warning above - crossing an international
+    // boundary is a legal/territorial problem, entering a protected
+    // conservation area is an environmental/fishing-restriction problem.
+    // Deliberately NOT reusing the boundary warning's magenta - teal is
+    // distinct from magenta, from the green/yellow/orange/red risk
+    // palette, and conventionally reads as "environmental/conservation".
+    // Both overlays can appear on the same route simultaneously without
+    // being confused for one another (offset slightly wider so a route
+    // flagged for BOTH still shows two visibly separate stripes).
+    if (hasMpaWarning) {
+      const mpaOverlay = L.polyline(latlngs, {
+        color: '#00bfa5',
+        weight: (isRecommended ? 5 : 3) + (hasBoundaryWarning ? 9 : 5),
+        opacity: 0.85,
+        dashArray: '1, 10',
+        lineCap: 'round',
+        className: 'mpa-warning-overlay',
+      }).addTo(map);
+      routeLayers.push(mpaOverlay);
+    }
+
     const recTag = isRecommended ? ' \u2705 RECOMMENDED' : '';
     const boundaryWarningHtml = hasBoundaryWarning
       ? `<br><span class="boundary-warning-popup">\u26a0\ufe0f MARITIME BOUNDARY WARNING \u2014 comes within ${route.boundary_distance_km} km of India's EEZ boundary</span>`
+      : '';
+    const mpaWarningHtml = hasMpaWarning
+      ? `<br><span class="mpa-warning-popup">\ud83c\udf3f MARINE PROTECTED AREA WARNING \u2014 comes within ${route.mpa_distance_km} km of a protected conservation area</span>`
       : '';
     polyline.bindPopup(`
       <b>${route.label}</b>${recTag}<br>
       ${LEVEL_EMOJIS[route.route_risk_level] || ''} ${route.route_risk_level} \u2014 ${route.route_risk_score}/100<br>
       Distance: ${route.distance_km} km &nbsp; Time: ~${route.travel_time_min} min<br>
-      Primary risk factor: ${route.primary_risk_factor}${boundaryWarningHtml}
+      Primary risk factor: ${route.primary_risk_factor}${boundaryWarningHtml}${mpaWarningHtml}
     `);
 
     routeLayers.push(polyline);

@@ -14,6 +14,12 @@ load_dotenv(BACKEND_DIR / ".env")
 
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
 
+# Only needed to run scripts/fetch_india_mpa_data.py (Marine Protected Area
+# geofencing setup - see PROJECT_CONTEXT.md Section 14o for why this data
+# is fetched live via Protected Planet's API rather than committed to the
+# repo). Not required for the main app to run.
+PROTECTEDPLANET_API_TOKEN = os.environ.get("PROTECTEDPLANET_API_TOKEN")
+
 DATA_DIR = Path(__file__).resolve().parent / "data"
 MARINE_DATA_PATH = DATA_DIR / "marine_data.json"
 

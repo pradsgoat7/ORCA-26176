@@ -45,7 +45,9 @@
           }
         ],
         "boundary_warning": true,
-        "boundary_distance_km": 1.83
+        "boundary_distance_km": 1.83,
+        "mpa_warning": null,
+        "mpa_distance_km": null
       },
       {
         "id": "route_b",
@@ -79,7 +81,9 @@
           }
         ],
         "boundary_warning": true,
-        "boundary_distance_km": 1.83
+        "boundary_distance_km": 1.83,
+        "mpa_warning": null,
+        "mpa_distance_km": null
       },
       {
         "id": "route_c",
@@ -113,7 +117,9 @@
           }
         ],
         "boundary_warning": true,
-        "boundary_distance_km": 1.83
+        "boundary_distance_km": 1.83,
+        "mpa_warning": null,
+        "mpa_distance_km": null
       }
     ],
     "recommended_route_id": "route_direct",
@@ -138,9 +144,9 @@
         "label": "Direct",
         "distance_km": 40.2,
         "travel_time_min": 161,
-        "route_risk_score": 30,
+        "route_risk_score": 40,
         "route_risk_level": "MODERATE",
-        "primary_risk_factor": "Wave Risk",
+        "primary_risk_factor": "Lightning Risk",
         "is_recommended": true,
         "waypoints": [
           {
@@ -165,16 +171,18 @@
           }
         ],
         "boundary_warning": false,
-        "boundary_distance_km": 238.04
+        "boundary_distance_km": 238.04,
+        "mpa_warning": null,
+        "mpa_distance_km": null
       },
       {
         "id": "route_b",
         "label": "Route B",
         "distance_km": 42.2,
         "travel_time_min": 169,
-        "route_risk_score": 30,
+        "route_risk_score": 40,
         "route_risk_level": "MODERATE",
-        "primary_risk_factor": "Wave Risk",
+        "primary_risk_factor": "Lightning Risk",
         "is_recommended": false,
         "waypoints": [
           {
@@ -199,16 +207,18 @@
           }
         ],
         "boundary_warning": false,
-        "boundary_distance_km": 238.04
+        "boundary_distance_km": 238.04,
+        "mpa_warning": null,
+        "mpa_distance_km": null
       },
       {
         "id": "route_c",
         "label": "Route C",
         "distance_km": 42.2,
         "travel_time_min": 169,
-        "route_risk_score": 30,
+        "route_risk_score": 39,
         "route_risk_level": "MODERATE",
-        "primary_risk_factor": "Wave Risk",
+        "primary_risk_factor": "Lightning Risk",
         "is_recommended": false,
         "waypoints": [
           {
@@ -233,10 +243,138 @@
           }
         ],
         "boundary_warning": false,
-        "boundary_distance_km": 238.04
+        "boundary_distance_km": 238.04,
+        "mpa_warning": null,
+        "mpa_distance_km": null
       }
     ],
     "recommended_route_id": "route_direct",
-    "explanation": "Direct is both the shortest option and has the lowest marine risk (30/100)."
+    "explanation": "Direct is both the shortest option and has the lowest marine risk (40/100)."
+  },
+  "mpa_warning": {
+    "is_route": true,
+    "error": null,
+    "origin": {
+      "lat": 9.2876,
+      "lon": 79.1367,
+      "name": "Mandapam"
+    },
+    "destination": {
+      "lat": 9.0,
+      "lon": 78.8,
+      "name": "Gulf of Mannar test area (Section 14o)"
+    },
+    "candidate_routes": [
+      {
+        "id": "route_direct",
+        "label": "Direct",
+        "distance_km": 48.9,
+        "travel_time_min": 196,
+        "route_risk_score": 32,
+        "route_risk_level": "MODERATE",
+        "primary_risk_factor": "Wind Risk",
+        "is_recommended": true,
+        "waypoints": [
+          {
+            "lat": 9.2876,
+            "lon": 79.1367
+          },
+          {
+            "lat": 9.2157,
+            "lon": 79.05253
+          },
+          {
+            "lat": 9.1438,
+            "lon": 78.96835
+          },
+          {
+            "lat": 9.0719,
+            "lon": 78.88417
+          },
+          {
+            "lat": 9.0,
+            "lon": 78.8
+          }
+        ],
+        "boundary_warning": false,
+        "boundary_distance_km": 41.08,
+        "mpa_warning": true,
+        "mpa_distance_km": 3.81
+      },
+      {
+        "id": "route_b",
+        "label": "Route B",
+        "distance_km": 51.4,
+        "travel_time_min": 206,
+        "route_risk_score": 32,
+        "route_risk_level": "MODERATE",
+        "primary_risk_factor": "Wind Risk",
+        "is_recommended": false,
+        "waypoints": [
+          {
+            "lat": 9.2876,
+            "lon": 79.1367
+          },
+          {
+            "lat": 9.25121,
+            "lon": 79.02179
+          },
+          {
+            "lat": 9.19402,
+            "lon": 78.9249
+          },
+          {
+            "lat": 9.10741,
+            "lon": 78.85346
+          },
+          {
+            "lat": 9.0,
+            "lon": 78.8
+          }
+        ],
+        "boundary_warning": false,
+        "boundary_distance_km": 41.08,
+        "mpa_warning": true,
+        "mpa_distance_km": 0.13
+      },
+      {
+        "id": "route_c",
+        "label": "Route C",
+        "distance_km": 51.4,
+        "travel_time_min": 206,
+        "route_risk_score": 34,
+        "route_risk_level": "MODERATE",
+        "primary_risk_factor": "Wind Risk",
+        "is_recommended": false,
+        "waypoints": [
+          {
+            "lat": 9.2876,
+            "lon": 79.1367
+          },
+          {
+            "lat": 9.18019,
+            "lon": 79.08326
+          },
+          {
+            "lat": 9.09358,
+            "lon": 79.0118
+          },
+          {
+            "lat": 9.03639,
+            "lon": 78.91489
+          },
+          {
+            "lat": 9.0,
+            "lon": 78.8
+          }
+        ],
+        "boundary_warning": false,
+        "boundary_distance_km": 41.08,
+        "mpa_warning": true,
+        "mpa_distance_km": 4.18
+      }
+    ],
+    "recommended_route_id": "route_direct",
+    "explanation": "Direct is both the shortest option and has the lowest marine risk (32/100)."
   }
 }

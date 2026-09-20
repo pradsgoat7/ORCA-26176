@@ -132,6 +132,10 @@ backend/
     │   │                     COASTAL_REFERENCE_POINTS, haversine_km()
     │   ├── maritime_boundary.py  distance_to_eez_boundary_km(), loads
     │   │                     india_eez.geojson - see Section 14d
+    │   ├── marine_protected_areas.py  distance_to_nearest_mpa_km() - LAZILY
+    │   │                     loads india_mpa.geojson if present (gitignored,
+    │   │                     not committed - see Section 14o), else honest
+    │   │                     None everywhere
     │   └── mosdac_ocean_eye.py  fetch_ocean_temperature_c(),
     │                         fetch_salinity_psu(), fetch_mixed_layer_depth_m(),
     │                         fetch_current_speed_ms() - MOSDAC Ocean-Eye WMS,
@@ -140,6 +144,10 @@ backend/
     │   ├── loader.py         Loads marine_data.json once at import time.
     │   │                     Exposes MARINE_DATA dict and LOCATION_ALIASES dict
     │   ├── marine_data.json  25 coastal cities. See Section 6 for exact schema.
+    │   ├── india_mpa.geojson  NOT COMMITTED (gitignored) - India's Marine
+    │   │                     Protected Areas, fetched live per-developer via
+    │   │                     scripts/fetch_india_mpa_data.py - see Section 14o
+    │   │                     for the licensing reasoning
     │   ├── policy_docs/      Real downloaded PDFs (NDMA + IMD cyclone docs, 2 CMFRI
     │   │                     fisheries docs added in Section 14j, 1 FAO safety-at-sea
     │   │                     doc added in Section 14m - 5 documents total)
@@ -176,9 +184,13 @@ backend/
                                     directly by the /zones endpoint
 
 scripts/
-└── build_policy_index.py   One-time (re-runnable) RAG ingestion script -
-                             see Section 14g. Run manually, not at server
-                             startup: python3 scripts/build_policy_index.py
+├── build_policy_index.py   One-time (re-runnable) RAG ingestion script -
+│                            see Section 14g. Run manually, not at server
+│                            startup: python3 scripts/build_policy_index.py
+└── fetch_india_mpa_data.py  Per-developer setup script (requires your OWN
+                             Protected Planet API token) - see Section 14o.
+                             NOT run automatically, NOT verified end-to-end
+                             in this repo yet (no token available).
 
 tests/
 ├── test_phase3.py   Quick manual smoke test - run with: python3 -m tests.test_phase3
@@ -186,8 +198,17 @@ tests/
 │                    python3 -m tests.test_phase7
 ├── test_policy_retrieval.py   RAG Step 1 retrieval-quality check (read-only
 │                    against the persisted index) - python3 -m tests.test_policy_retrieval
-└── test_policy_agent.py   RAG Step 2 end-to-end suite (25 checks, policy_agent +
-                     graph wiring) - see Section 14h - python3 -m tests.test_policy_agent
+├── test_policy_agent.py   RAG Step 2 end-to-end suite (35 checks, policy_agent +
+│                    graph wiring) - see Section 14h - python3 -m tests.test_policy_agent
+├── test_maritime_boundary.py, test_boundary_geofencing.py, test_mosdac_ocean_eye.py -
+│                    see Sections 13c/14d/14f respectively
+├── generate_route_fixtures.py   Regenerates frontend/tests/route_fixtures.json
+│                    from the REAL pipeline (live weather + a test-only MPA
+│                    polygon for the mpa_warning scenario) - see Section 14o
+└── test_marine_protected_areas.py   MPA geofencing suite (8 checks, uses a
+                     test-only Gulf of Mannar polygon since no real WDPA
+                     data exists yet) - see Section 14o -
+                     python3 -m tests.test_marine_protected_areas
 
 frontend/
 ├── index.html
@@ -1894,6 +1915,222 @@ fields.
   tests.test_mosdac_ocean_eye` (21/21), `python3 -m
   tests.test_boundary_geofencing` (all scenarios still correctly
   warn/stay-quiet as before).
+
+### 14o. Second geofencing layer: Marine Protected Areas (MPAs) — DONE (2026-09-18), with a genuine licensing constraint handled honestly
+
+Extends Section 13b/13c/14d's EEZ boundary geofencing pattern to India's
+Marine Protected Areas - a SEPARATE, independent geofencing layer, not a
+parallel system. Same shapely `nearest_points()` + `haversine_km`
+distance-to-boundary technique throughout.
+
+**STAGE 1 - Licensing, checked BEFORE downloading anything, with real
+quotes, not assumptions:**
+
+Directly fetched Protected Planet's own legal page
+(`protectedplanet.net/en/legal`) and read the literal text:
+
+> "You may not redistribute the WDPCA and GD-PAME Data contained in the
+> WDPCA and GD-PAME in whole or in part by any means including (but not
+> limited to) electronic formats such as web downloads, through web
+> services, through interactive web maps..."
+
+**Explicitly confirmed this does NOT treat a country-level extract any
+differently from the full global dataset** - both fall under the exact
+same redistribution restriction. This directly answers the task's
+question 1: no, downloading just India's protected areas via the site's
+own country page does not get special treatment - the ToU text draws no
+such distinction. Committing a saved `india_mpa.geojson` to this repo
+(a shared GitHub repository, which IS "redistribut[ing]... including...
+web downloads") would violate this.
+
+**Checked `api.protectedplanet.net` as the live-query alternative**
+(question 2) - real, confirmed via direct fetch of
+`api.protectedplanet.net/documentation` and a real `curl` against the
+endpoint (returned HTTP 401 "Unauthorized. Invalid or expired token" -
+confirming the route genuinely exists and expects a token, not a 404).
+The real, documented endpoint:
+```
+GET https://api.protectedplanet.net/v4/protected_areas/search
+    ?country=IND&marine=true&with_geometry=true&per_page=50&page=N&token=...
+```
+returns full `Feature`/`Polygon` GeoJSON geometry per protected area
+(not just centroids), confirmed from the real documentation's sample
+response. **This is genuinely the cleaner, licensing-safe path** - each
+developer queries UNEP-WCMC's server directly with their OWN token, so
+ORCA itself never redistributes anything, exactly the same shape as how
+MOSDAC's WMS point-queries work (Section 14f). **The catch**: unlike
+MOSDAC's Ocean-Eye WMS (no account needed at all), a Protected Planet API
+token requires **manual approval** - confirmed by fetching the token
+request page directly: *"Once your request is approved, your API access
+key will be sent to this address."* This is the same friction class as
+MOSDAC's ORIGINAL Data Download API account process (Section 13a), and
+could not be obtained within this session (no email/approval loop
+available to an AI session).
+
+(A third-party GitHub project, `yashveeeeeeer/india-geodata`, was also
+found claiming CC BY 4.0 / CC0 licensing for Indian-government-sourced
+wildlife/protected-area layers (PM GatiShakti, NCSCM) as a possible
+faster alternative - explicitly NOT adopted here, since verifying it
+actually covers India's specific marine national parks and safely
+parsing its Parquet/PMTiles/7z release-asset formats was more effort
+than this task's scope justified. Flagged here as a real, promising lead
+for whoever picks up Stage 1's remaining work, not silently dropped.)
+
+**DECISION: Option (b)** - do NOT commit a bulk MPA file. Built
+`backend/scripts/fetch_india_mpa_data.py`, a setup script matching
+`build_policy_index.py`'s "run it yourself" precedent: paginates the
+real v4 `/search` endpoint for `country=IND&marine=true&with_geometry=true`,
+builds a standard FeatureCollection with real attribution properties
+(name, WDPA site ID, designation, IUCN category - same spirit as
+`india_eez.geojson`'s `source` field, Section 13c), and writes
+`app/data/india_mpa.geojson` - added to `.gitignore` with an explicit
+comment explaining why (this is a deliberate, targeted exception to this
+project's general practice of committing generated artifacts like
+`policy_index/` - THIS file specifically carries a real third-party
+redistribution restriction that policy_index's RAG documents don't).
+`PROTECTEDPLANET_API_TOKEN` added to `config.py`/`.env.example`,
+loaded the same way as `GOOGLE_API_KEY`.
+
+**Honesty note, stated plainly rather than glossed over**: this script
+has **NOT been run end-to-end** in this session - there is no real API
+token available, so `app/data/india_mpa.geojson` does not exist yet
+anywhere. This is the first data source in this project that could not
+be verified by an actual successful run before being trusted (contrast
+every prior source - MOSDAC, NDMA/IMD/CMFRI/FAO documents, the EEZ
+GeoJSON - all confirmed working via direct HTTP calls). The script itself
+IS verified against real, fetched API documentation and a real 401
+response confirming the endpoint - only the full fetch-and-save flow is
+unverified, pending a real token.
+
+**STAGE 2 - the geofencing check itself, built and fully tested despite
+Stage 1's data gap:**
+
+- **New module**: `backend/app/services/marine_protected_areas.py` -
+  mirrors `maritime_boundary.py`'s pattern (`nearest_points()` +
+  `haversine_km`), but **lazily loaded** rather than at import time
+  (`maritime_boundary.py` loads `india_eez.geojson` eagerly and would
+  crash if it were missing - correct there, since that file IS committed
+  and always present; wrong here, since `india_mpa.geojson` is
+  gitignored and won't exist until a developer runs the fetch script).
+  `distance_to_nearest_mpa_km(lat, lon)` returns `None` - never a
+  fabricated 0 or a fake "no MPA nearby" - whenever the data file isn't
+  present, matching this project's established honesty pattern (same
+  spirit as `salinity_psu`/`current_speed_ms`/`mixed_layer_depth_m`
+  honestly going `None` when MOSDAC is unreachable, Section 14f).
+  `DEFAULT_MPA_WARNING_THRESHOLD_KM = 5.0` - tighter than the EEZ's 8.0km
+  (Section 13b), since MPAs are smaller, more tightly-bounded
+  conservation areas where a fishing restriction is immediately
+  consequential right at the edge, not just "getting close."
+- **New pure function**: `route_engine.check_mpa_proximity()` - same
+  shape as `check_boundary_proximity()`, but honestly propagates `None`
+  (not `False`) for `mpa_warning`/`mpa_distance_km` when every waypoint's
+  distance came back `None` (MPA data unavailable) - so a caller/frontend
+  can tell "confirmed no nearby MPA" apart from "we don't know yet,"
+  which matters a lot for a safety feature.
+- **Architecture decision - SEPARATE fields, not merged into one flag**
+  (the task's own explicit question): `mpa_warning`/`mpa_distance_km` are
+  entirely independent from `boundary_warning`/`boundary_distance_km`,
+  both computed and exposed on every route. **Reasoning**: crossing an
+  international EEZ boundary is a legal/territorial problem (risk of
+  detention, diplomatic incident, the real Palk Strait fishermen-crossing
+  problem cited in Section 14d); entering a Marine Protected Area is an
+  environmental/fishing-restriction problem (conservation law, catch
+  bans, gear restrictions) - genuinely different consequences a fisherman
+  or coast guard officer needs to reason about differently, not one
+  generic "you're near something" flag. A route can independently be
+  flagged for EITHER, BOTH, or NEITHER, and the UI needs to let a user
+  tell them apart (see below) - collapsing them into one field would
+  destroy exactly the information this feature exists to surface.
+- **Wired into `route_planning_agent`**: right alongside the existing EEZ
+  check, using the same per-route waypoint-distance-list pattern, no new
+  network calls (local geometry only).
+- **API contract**: `route.candidate_routes[]` gains `mpa_warning`
+  (bool or `null`) and `mpa_distance_km` (float or `null`), additive
+  only, alongside the existing `boundary_warning`/`boundary_distance_km`.
+
+**Frontend** (`map.js`/`chat.js`/`style.css`), reusing Section 14e's
+established visual pattern but with a **deliberately different color**
+so the two warning types are never confused: **teal (`#00bfa5`)** for
+MPA, vs the existing **magenta (`#d500f9`)** for EEZ boundary - teal
+reads as "environmental/conservation," distinct from both the boundary
+magenta and the green/yellow/orange/red risk-level palette. A second,
+independently-toggled dashed overlay line (`.mpa-warning-overlay`, dash
+rhythm `1,10` vs the boundary's `2,14`) can appear on top of a route
+alongside the boundary overlay if a route is ever flagged for both -
+each stays visually distinguishable, matching Section 14e's own
+"additive overlay, never overwrite" philosophy. Route popups and the
+route info panel gain a parallel, distinctly-worded MPA banner
+(`.route-mpa-banner`, teal-themed) and inline tag - explicitly separate
+markup from the boundary banner/tag, never merged text.
+
+**Testing - real scenarios, real output, honest about what's mocked and
+why:**
+- Since no real WDPA data exists in this session (Stage 1's honest gap),
+  tests use a small, clearly-labeled TEST-ONLY polygon approximating
+  Gulf of Mannar Marine National Park's real, Wikipedia-cited extent
+  (centroid 9.1375°N 79.4725°E, runs 1-10km offshore between Mandapam and
+  Thoothukudi) - Wikipedia is a separately, permissively CC-BY-SA-licensed
+  source, not WDPA data, so this doesn't touch the redistribution
+  restriction at all. Explicitly a simplification (a rectangle, not the
+  real 21-island shape) - good enough to prove the geofencing LOGIC
+  works, not a substitute for real data.
+  - **Real bug caught and fixed while building this fixture**: the first
+    version of the test rectangle was sized too generously and
+    accidentally overlapped Palk Strait (a genuinely different, adjacent
+    water body north of Rameswaram/Dhanushkodi) - this caused Test 3
+    (the false-positive check) to fail for real, correctly catching that
+    the fixture's own geography was wrong. Fixed by repositioning the
+    rectangle to stay west of longitude 79.3, correctly south/west of the
+    Rameswaram-Dhanushkodi peninsula, matching the real park's actual
+    position relative to Palk Strait.
+- **`backend/tests/test_marine_protected_areas.py`, 8/8 passing**:
+  - Route from Mandapam (a real coastal town) toward a point inside the
+    test Gulf of Mannar polygon - `mpa_warning: True` on all 3 candidate
+    routes, closest approach as low as 0.13-4.18 km.
+  - Kochi -> Kochi's `nearest_pfz` (the existing known-safe route) -
+    `boundary_warning: False` AND `mpa_warning: False` on all routes,
+    confirming the new layer doesn't introduce false positives on the
+    project's own reference "safe" scenario.
+  - Rameswaram -> the real Palk Strait EEZ boundary point (9.15, 79.55) -
+    `boundary_warning: True` (as already proven in Section 14d) while
+    `mpa_warning` correctly stays `False` - confirms the two layers are
+    genuinely independent and a real EEZ-proximity case does NOT falsely
+    trigger an MPA warning just because both are "geofencing."
+  - MPA data genuinely absent (the real, current state of this repo, no
+    mocking needed) - `distance_to_nearest_mpa_km()` returns `None`,
+    `check_mpa_proximity()` sets both fields to `None` rather than a
+    fabricated `False`.
+- **`backend/tests/generate_route_fixtures.py`** extended with a third
+  scenario (`mpa_warning`: Mandapam -> inside the test polygon,
+  real live weather sampling included, same as the other two
+  scenarios) and now records `mpa_warning`/`mpa_distance_km` on every
+  fixture. Regenerated `frontend/tests/route_fixtures.json` for real.
+- **`frontend/tests/test_mpa_warning_ui.js`** (new, same `vm`-based
+  technique as Section 14e's `test_boundary_warning_ui.js`), **22/22
+  passing**: confirms exactly one teal `.mpa-warning-overlay` polyline
+  per `mpa_warning=true` route, confirms its color is teal and distinct
+  from the boundary overlay's magenta, confirms the EEZ boundary
+  overlay's own count is completely unaffected by the MPA code addition
+  (a real regression check), confirms popup text and the info-panel
+  banner appear if-and-only-if the recommended route is MPA-flagged, with
+  correctly distinct wording from the boundary warning. Re-ran the
+  original `test_boundary_warning_ui.js` too - still 13/13 passing, zero
+  regression from adding the MPA layer alongside it.
+- **Full backend regression suite, zero regressions**: `python3 -m
+  tests.test_phase7` (20/20), `python3 -m tests.test_policy_agent`
+  (35/35), `python3 -m tests.test_mosdac_ocean_eye` (21/21), `python3 -m
+  tests.test_boundary_geofencing` (all scenarios unchanged and still
+  passing).
+
+**Summary of what's genuinely done vs. genuinely blocked**: the
+geofencing logic, route wiring, API contract, and full frontend
+visualization are DONE and thoroughly tested (via a clearly-labeled test
+fixture). The only thing NOT done is populating real WDPA data into
+`india_mpa.geojson`, which requires a human to request and wait for
+Protected Planet API approval - a genuine external dependency, not a
+shortcut taken. Once that token exists, `python3
+scripts/fetch_india_mpa_data.py` should make the whole feature real
+end-to-end with no further code changes.
 
 ---
 

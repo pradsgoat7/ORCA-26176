@@ -14,13 +14,16 @@ from app.core.risk_engine import calculate_all_metrics, classify_level
 from app.core.route_engine import (
     generate_candidate_routes, estimate_travel_time_minutes,
     score_route, select_recommended_route, build_route_explanation,
-    check_boundary_proximity,
+    check_boundary_proximity, check_mpa_proximity,
 )
 from app.data.loader import MARINE_DATA, LOCATION_ALIASES
 from app.graph.state import ORCAState
 from app.services.geocoding import geocode_location, is_near_coast
 from app.services.maritime_boundary import (
     distance_to_eez_boundary_km, DEFAULT_BOUNDARY_WARNING_THRESHOLD_KM,
+)
+from app.services.marine_protected_areas import (
+    distance_to_nearest_mpa_km, DEFAULT_MPA_WARNING_THRESHOLD_KM,
 )
 from app.services.weather_api import fetch_live_wind, fetch_live_marine
 
@@ -183,6 +186,20 @@ def route_planning_agent(state: ORCAState) -> ORCAState:
             distance_to_eez_boundary_km(wp["lat"], wp["lon"]) for wp in route["waypoints"]
         ]
         check_boundary_proximity(route, waypoint_boundary_distances, DEFAULT_BOUNDARY_WARNING_THRESHOLD_KM)
+
+        # Second, independent geofencing check: how close does this route
+        # get to a Marine Protected Area? Kept separate from the EEZ check
+        # above deliberately - see check_mpa_proximity()'s docstring and
+        # PROJECT_CONTEXT.md Section 14o for why these are different kinds
+        # of warnings, not one combined flag. distance_to_nearest_mpa_km()
+        # honestly returns None for every waypoint if india_mpa.geojson
+        # hasn't been fetched yet (Section 14o) - check_mpa_proximity()
+        # handles that gracefully rather than crashing or fabricating a
+        # false "no warning".
+        waypoint_mpa_distances = [
+            distance_to_nearest_mpa_km(wp["lat"], wp["lon"]) for wp in route["waypoints"]
+        ]
+        check_mpa_proximity(route, waypoint_mpa_distances, DEFAULT_MPA_WARNING_THRESHOLD_KM)
 
     recommended = select_recommended_route(candidate_routes)
     explanation = build_route_explanation(recommended, candidate_routes)

@@ -72,7 +72,17 @@ function renderRouteInfoPanel(routeField) {
     const boundaryTag = r.boundary_warning
       ? ` <span class="boundary-warning-popup">\ud83e\udded\u26a0\ufe0f ${r.boundary_distance_km} km to EEZ boundary</span>`
       : '';
-    return `<div class="route-alt-item">${icon} <b>${r.label}</b> \u2014 ${r.distance_km} km, risk ${r.route_risk_score}/100 (${r.route_risk_level})${recTag}${boundaryTag}</div>`;
+    // mpa_warning is a SEPARATE field from boundary_warning (Section 14o) -
+    // kept as its own tag, own color, own icon, never merged with the
+    // boundary tag, so a fisherman can tell "international boundary" apart
+    // from "protected conservation area" even in this compact list. It can
+    // also be `null` (not just true/false) when MPA data hasn't been
+    // fetched yet (see services/marine_protected_areas.py) - only render
+    // the tag when it's actually `true`, not merely truthy-ish.
+    const mpaTag = r.mpa_warning === true
+      ? ` <span class="mpa-warning-popup">\ud83c\udf3f\u26a0\ufe0f ${r.mpa_distance_km} km to protected area</span>`
+      : '';
+    return `<div class="route-alt-item">${icon} <b>${r.label}</b> \u2014 ${r.distance_km} km, risk ${r.route_risk_score}/100 (${r.route_risk_level})${recTag}${boundaryTag}${mpaTag}</div>`;
   }).join('');
 
   // A route can score LOW/MODERATE on weather risk alone while ALSO
@@ -87,10 +97,22 @@ function renderRouteInfoPanel(routeField) {
        ${recommended.route_risk_level}. Exercise caution near international waters.</div>`
     : '';
 
+  // Same reasoning, SEPARATE banner (Section 14o) - a Marine Protected
+  // Area warning is an environmental/fishing-restriction concern, not a
+  // territorial one, so it gets its own distinctly-colored banner rather
+  // than being appended to or merged with the boundary banner above. Both
+  // banners can appear together if a route is flagged for both.
+  const mpaBannerHtml = recommended.mpa_warning === true
+    ? `<div class="route-mpa-banner">\ud83c\udf3f MARINE PROTECTED AREA WARNING: the recommended route comes within
+       ${recommended.mpa_distance_km} km of a protected conservation area, even though its weather/sea-state risk is
+       ${recommended.route_risk_level}. Fishing may be restricted or banned in this area.</div>`
+    : '';
+
   const card = document.createElement('div');
   card.className = 'risk-card'; // reuse existing card styling for visual consistency
   card.innerHTML = `
     ${boundaryBannerHtml}
+    ${mpaBannerHtml}
     <div class="risk-card-title">\ud83e\udded ORCA MARINE ROUTE</div>
     <div class="risk-overall-row">
       <span class="risk-overall-badge ${levelClass}">${emoji} ${recommended.route_risk_level} \u2014 ${recommended.route_risk_score}/100</span>

@@ -7,3 +7,11 @@ backend/.env
 **/__pycache__/
 *.pyc
 .DS_Store
+
+# India MPA data (Section 14o): fetched live from Protected Planet's API
+# by scripts/fetch_india_mpa_data.py, using each developer's OWN API
+# token. Deliberately NOT committed - Protected Planet's terms prohibit
+# redistributing WDPA data "in whole or in part... including web
+# downloads" even for a country-level extract (unlike india_eez.geojson,
+# which comes from a source with no such restriction).
+backend/app/data/india_mpa.geojson

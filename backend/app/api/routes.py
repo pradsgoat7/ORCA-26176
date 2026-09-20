@@ -80,6 +80,16 @@ def _build_route_field(result: dict) -> dict:
                 # --- Maritime boundary geofencing (India EEZ) ---
                 "boundary_warning": r["boundary_warning"],
                 "boundary_distance_km": r["boundary_distance_km"],
+                # --- Marine Protected Area geofencing (Section 14o) ---
+                # A SEPARATE field from boundary_warning above, deliberately
+                # not merged - crossing an international boundary and
+                # entering a protected conservation area are different
+                # kinds of problems (legal/territorial vs environmental/
+                # fishing-restriction). mpa_warning is None (not False)
+                # when MPA data hasn't been fetched yet - see
+                # services/marine_protected_areas.py.
+                "mpa_warning": r["mpa_warning"],
+                "mpa_distance_km": r["mpa_distance_km"],
             }
             for r in route_plan["candidate_routes"]
         ],

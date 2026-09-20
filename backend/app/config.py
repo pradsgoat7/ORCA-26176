@@ -31,3 +31,17 @@ DEFAULT_SST_C = 28.0
 
 # Open-Meteo WMO weather codes for thunderstorm activity
 THUNDERSTORM_CODES = {95, 96, 99}
+
+# generate_candidate_routes() (route_engine.py) builds routes via straight-
+# line interpolation + a perpendicular bend - a reasonable approximation for
+# realistic short coastal/fishing-zone trips, but it breaks down over long
+# distances since India's coastline curves significantly, producing routes
+# that cut directly across land. 200km is chosen as the ceiling because it
+# already represents roughly a full working day one-way at this app's own
+# small-fishing-vessel speed assumption (estimate_travel_time_minutes()'s
+# 15 km/h -> 200km takes ~13.3 hours), well beyond what a small-scale
+# fishing vessel (this app's target user, per the FAO safety-at-sea
+# document - see PROJECT_CONTEXT.md Section 14m) would realistically travel
+# point-to-point. Beyond this, ORCA should say so honestly rather than
+# silently generating a nonsensical land-crossing route.
+MAX_REALISTIC_ROUTE_DISTANCE_KM = 200.0

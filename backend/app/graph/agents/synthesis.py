@@ -11,6 +11,7 @@ on an answer that gets thrown away.
 import requests
 
 from app.config import GOOGLE_API_KEY
+from app.graph.agents.greeting_detection import ONBOARDING_MESSAGES
 from app.graph.state import ORCAState
 
 # Hardcoded fallback phrases so the demo stays multilingual even when the
@@ -112,6 +113,15 @@ def synthesis_agent(state: ORCAState) -> ORCAState:
     # that answer directly rather than crashing on missing risk/geospatial
     # data or wastefully calling Gemini a second time for nothing.
     if not state.get("location_data"):
+        # A greeting/help-seeking message (see planner.py's guard in
+        # greeting_detection.py's docstring) also has no location and no
+        # risk data to build a prompt from - deterministic onboarding
+        # message, no Gemini call needed (or wanted - this should never
+        # vary call to call).
+        if state.get("is_greeting_or_help"):
+            lang = state.get("language", "en")
+            return {"answer": ONBOARDING_MESSAGES.get(lang, ONBOARDING_MESSAGES["en"])}
+
         policy_answer = state.get("policy_answer")
         if policy_answer:
             return {"answer": policy_answer["answer"]}

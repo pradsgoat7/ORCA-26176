@@ -211,18 +211,30 @@ tests/
                      python3 -m tests.test_marine_protected_areas
 
 frontend/
-├── index.html
+├── index.html            Multi-tab shell since Section 14p (2026-09-20) -
+│                         6 <section class="tab-panel"> containers (Home,
+│                         Ask ORCA, Risk Map, Route Planner, Knowledge Base,
+│                         About & Data Sources); the ENTIRE pre-existing
+│                         chat/map markup now lives inside #tab-ask, unchanged
 ├── css/
-│   └── style.css
-└── js/                  LOADED IN THIS EXACT ORDER via <script> tags - order matters!
-    ├── config.js         (1st) API_URL, ZONES_URL, LEVEL_EMOJIS,
-    │                     STAKEHOLDER_DASHBOARD_TITLES, levelColor(), scoreToColor()
-    ├── map.js            (2nd) Leaflet map init, zone circles, route polylines,
-    │                     legend + "show all zones" controls
-    ├── voice.js          (3rd) Speech input (SpeechRecognition) AND speech
-    │                     output (speechSynthesis) - speak(), toggleVoiceOutput()
-    └── chat.js           (4th) addMessage, renderRiskCard, renderRouteInfoPanel,
-                          sendQuery() - the main orchestration function
+│   └── style.css         Tab-shell rules added at the top (Section 14p) -
+│                         everything below that is the pre-existing styling,
+│                         untouched
+├── js/                  LOADED IN THIS EXACT ORDER via <script> tags - order matters!
+│   ├── config.js         (1st) API_URL, ZONES_URL, LEVEL_EMOJIS,
+│   │                     STAKEHOLDER_DASHBOARD_TITLES, levelColor(), scoreToColor()
+│   ├── map.js            (2nd) Leaflet map init, zone circles, route polylines,
+│   │                     legend + "show all zones" controls
+│   ├── voice.js          (3rd) Speech input (SpeechRecognition) AND speech
+│   │                     output (speechSynthesis) - speak(), toggleVoiceOutput()
+│   ├── chat.js           (4th) addMessage, renderRiskCard, renderRouteInfoPanel,
+│   │                     sendQuery() - the main orchestration function
+│   └── tabs.js           (5th, NEW - Section 14p) showTab() - tab show/hide +
+│                         the map.invalidateSize() fix for Leaflet initializing
+│                         inside a hidden tab
+└── tests/                Node vm-based mocked-DOM UI tests (Section 7/14e) -
+                          test_boundary_warning_ui.js, test_mpa_warning_ui.js,
+                          test_tabs_ui.js (new, Section 14p), route_fixtures.json
 ```
 
 **Critical: this is a real Python package now** (`app/` has `__init__.py`
@@ -618,7 +630,16 @@ We have **10 days** until submission. Progress so far:
 
 ## 11. Frontend Rebuild Decision
 
-The team has decided to rebuild the frontend in **React** for a more
+**SUPERSEDED (2026-09-20) — see Section 14p.** The team reversed this
+decision: instead of a React rebuild, the frontend is being restructured
+into a multi-tab vanilla HTML/CSS/JS layout (Home, Ask ORCA, Risk Map,
+Route Planner, Knowledge Base, About & Data Sources), keeping the exact
+same no-framework approach. Stage 1 (the tab shell + relocating the
+existing chat interface into it unchanged) is DONE - see Section 14p for
+the full writeup, exactly which existing features were re-verified
+working, and what's still Stage 2.
+
+~~The team has decided to rebuild the frontend in **React** for a more
 "production" feel, rather than continuing to polish the current vanilla
 HTML/CSS/JS version. **This has NOT been started yet as of this document.**
 
@@ -628,7 +649,7 @@ Section 9) is the FUNCTIONAL SPEC to preserve — every feature (chat, risk
 card, zone map with legend, route polylines with recommended/alternative
 styling, voice input/output, language toggle) needs to work identically,
 just in a more polished, componentized way. Do not lose any functionality
-in the rebuild. The backend API does not need to change for this.
+in the rebuild. The backend API does not need to change for this.~~
 
 ---
 
@@ -2131,6 +2152,780 @@ Protected Planet API approval - a genuine external dependency, not a
 shortcut taken. Once that token exists, `python3
 scripts/fetch_india_mpa_data.py` should make the whole feature real
 end-to-end with no further code changes.
+
+### 14p. Frontend restructured into a multi-tab shell — Stage 1 DONE (2026-09-20)
+
+Supersedes Section 11's React-rebuild plan (see the strikethrough there) -
+the team decided to keep the vanilla HTML/CSS/JS approach and restructure
+`index.html` into a 6-tab layout instead: **Home, Ask ORCA, Risk Map,
+Route Planner, Knowledge Base, About & Data Sources**. This session was
+Stage 1 only: build the tab shell and relocate the ENTIRE existing chat
+interface into it with zero behavior change. No backend code was touched.
+
+**Structure**: `index.html` now has a `<nav id="top-nav">` with 6
+`.tab-btn` buttons and a `<main id="tab-content">` holding 6
+`<section class="tab-panel">` containers. Only one panel is visible at a
+time (`display:none` / `.active { display:block }`, CSS in `style.css`).
+The **entire pre-existing** `#chat-panel` + `#map` markup (input box, mic
+button, voice-output button, language toggle, message list, Leaflet map)
+moved into `#tab-ask` completely unchanged - same IDs, same classes, same
+inline `onclick` handlers, same script files. New `js/tabs.js` (loaded
+last) owns `showTab()` and wires up the nav buttons; "Home" is the
+default landing tab (a deliberate choice - listed first in the task, and
+matches the new Home/About tabs' role as the actual entry point now that
+the whole page isn't just the chat anymore).
+
+**The one genuine structural risk, identified and handled explicitly**:
+`map.js` calls `L.map('map', ...)` immediately at page load, regardless
+of which tab is visible. Since "Ask ORCA" (containing `#map`) is NOT the
+default tab, `#map` starts life inside a `display:none` container, so
+Leaflet measures a zero-size box at construction time - the standard
+failure mode for "a map inside a tab/accordion" is blank or mis-sized
+tiles until something forces a resize. Fixed with the standard, documented
+technique: `showTab()` calls `map.invalidateSize()` (inside
+`requestAnimationFrame`, so the browser finishes the `display:none` ->
+`flex` layout change first) specifically when switching TO "Ask ORCA".
+
+**Home tab**: a short, accurate mission statement (paraphrasing the real
+PS 26176 description from Section 1, not new marketing copy) plus 4 real
+stat numbers, each traceable to an actual documented fact - not invented:
+25 (coastal cities, Section 3/6), 5 (government/institutional documents
+indexed - NDMA, IMD, CMFRI ×2, FAO, Section 14g/14j/14m), 3 (languages -
+English/Hindi/Marathi, Section 1), 6 (live environmental parameters -
+wind, wave, SST, salinity, current, mixed layer depth, Section 4).
+
+**About & Data Sources tab**: reproduces Section 4's real LIVE/MOCK table
+verbatim (same fields, same statuses, same sources - Open-Meteo, MOSDAC,
+INCOIS) plus the 5-document knowledge base list with real
+titles/publishers from Section 14g/14j/14m. Explicitly a transparency
+page - no polish attempted, per the task's own instruction that accuracy
+matters more than visual design at this stage.
+
+**Risk Map / Route Planner / Knowledge Base tabs**: honest "Coming soon"
+placeholders (Stage 2), each explicitly pointing back to where that
+functionality already works today (the Ask ORCA tab) rather than implying
+the feature doesn't exist at all.
+
+**Testing - this was the highest-risk step, tested accordingly:**
+- **New `frontend/tests/test_tabs_ui.js`** (same Node `vm`-based mocked-
+  DOM technique as Section 14e, extended with a fuller DOM mock supporting
+  real `classList`/`dataset`/`querySelectorAll` since `tabs.js` actually
+  exercises those) - **30/30 passing**: confirms Home is the default
+  active tab (not Ask ORCA), confirms clicking each of the 6 nav buttons
+  shows exactly that tab and hides all others, confirms
+  `map.invalidateSize()` fires exactly once and ONLY when switching to
+  "Ask ORCA" (not on any other tab switch), confirms `sendQuery`/
+  `renderRiskCard`/`renderRouteInfoPanel`/`addMessage`/
+  `toggleVoiceOutput`/`setSpeechLang`/`toggleListening` are all still
+  defined and callable without throwing after the relocation, and
+  confirms zero `console.error` calls across the whole sequence.
+- **Re-ran the pre-existing `test_boundary_warning_ui.js` (13/13) and
+  `test_mpa_warning_ui.js` (22/22)** - both still fully passing, confirming
+  the HTML/CSS restructuring didn't affect `map.js`/`chat.js`'s own
+  rendering logic (these tests exercise those functions directly, not the
+  page shell).
+- **Real browser verification** (not just mocked DOM - this is what
+  actually caught and confirmed-fixed the Leaflet-in-hidden-tab risk,
+  which a mocked `L` object can never test): started the real backend
+  (`uvicorn`) and served the real frontend (`python3 -m http.server`),
+  then drove an actual Chrome browser end-to-end:
+  - First screenshot after clicking "Ask ORCA" showed exactly the
+    predicted symptom - most map tiles gray/blank, only the tile requested
+    before the tab became visible had loaded. Waiting ~3 seconds (real
+    OpenStreetMap tile fetch latency after `invalidateSize()` triggers new
+    tile requests) resolved it completely - a real, confirmed demonstration
+    that the fix works, not just that the code compiles.
+  - Submitted a real query ("Is it safe to fish tomorrow near Kochi?")
+    through the real backend - real Gemini-composed answer, correct SAFE
+    tag, correct risk card (LOW — 21/100, per-metric bars, recommendation
+    text), correct user-location + PFZ markers on the map.
+  - Submitted a real route query ("safest route from Kochi to the fishing
+    zone") - real "ORCA MARINE ROUTE" info panel (MODERATE — 41/100,
+    distance/time/primary-risk-factor, "why this route" explanation,
+    alternatives list), real polyline + start/destination markers on the
+    map, correctly showing no boundary warning (matches the known-safe
+    Kochi→PFZ scenario from Section 14d).
+  - Clicked "Show All Zones" - map correctly reset to the full south-India
+    view with all 25 zone circles, legend intact.
+  - Toggled voice output and switched the speech language to Hindi -
+    both toggled correctly (confirmed via direct DOM inspection, not just
+    visually).
+  - Voice INPUT (`toggleListening()`/microphone) was verified structurally
+    only (function exists, is wired to the mic button, doesn't throw) -
+    deliberately did NOT trigger a real microphone permission prompt in
+    the live browser, since that's a browser-level modal that can block
+    further automation, the same category of risk as a JS `alert()`.
+  - Checked `About & Data Sources`, `Risk Map` (placeholder), and `Home`
+    tabs directly in the browser too - all rendered correctly.
+  - Read the browser's console throughout this entire session
+    (`onlyErrors: true` at the end) - **zero errors**.
+  - **A real debugging detour worth recording**: several early clicks in
+    this browser session appeared to land on the right on-screen spot
+    (hover highlight visible) but didn't register - later confirmed via
+    direct `document.activeElement`/`.value` inspection that the click
+    coordinates weren't actually focusing the target element, and that
+    combining a page navigation with a subsequent pixel-coordinate click
+    in the same automation batch was unreliable. Fixed by switching to
+    the browser tool's semantic `find` + `form_input`/ref-based click
+    APIs (locate by description, click/type by element reference) instead
+    of guessing pixel coordinates - this was a browser-automation-tooling
+    quirk in this session, not a bug in the shipped code, and is recorded
+    here only because it's exactly the kind of "verify then trust" lesson
+    Section 7 already established.
+
+**Full backend regression suite also re-run** (no backend code was
+touched, but confirming this per Section 7's standing habit): `python3 -m
+tests.test_phase7` (20/20) - all others (test_policy_agent,
+test_mosdac_ocean_eye, test_boundary_geofencing, test_marine_protected_areas)
+unaffected by definition since this was a frontend-only change.
+
+**Stage 2, explicitly not started**: real content for Risk Map, Route
+Planner, and Knowledge Base tabs; any visual redesign (colors, government
+aesthetic, header/footer styling) - deliberately out of scope for this
+task per its own instructions.
+
+---
+
+### 14q. Stage 1's "coming soon" tabs built into real, functional pages — Stage 2 DONE (2026-09-20)
+
+Built out the 3 placeholder tabs from Section 14p (Risk Map, Route
+Planner, Knowledge Base) into real functionality. **No new backend work
+was needed or done** - all three call the SAME `/ask` endpoint (Route
+Planner and Knowledge Base) or the SAME `/zones` endpoint (Risk Map) that
+Ask ORCA already used; this was purely a frontend task giving already-
+working capabilities their own dedicated space instead of being buried
+inside general chat.
+
+- **Risk Map tab** (`#tab-riskmap`) now reads as a dashboard, not a chat:
+  a summary strip (`#riskmap-summary`) shows 4 counts - LOW/MODERATE/
+  HIGH/CRITICAL - computed client-side in a new `updateRiskMapSummary()`
+  (`map.js`) from the same `zonesData` array `renderZones()` already had
+  in hand, no new fetch. Below it, a larger, full-width map slot
+  (`#riskmap-map-slot`) hosts the relocated shared Leaflet map. Switching
+  to this tab also resets the view to the full south-India bounds and
+  clears any leftover route polylines/markers from a prior Ask ORCA or
+  Route Planner session (`clearRouteLayers`/`clearMarkers`), so only the
+  zone heatmap shows. The existing legend and "Show All Zones" control
+  were untouched.
+
+- **Route Planner tab** (`#tab-routeplanner`) is a dedicated form -
+  `From`/`To` text inputs, a "Nearest Fishing Zone" quick-fill button
+  (`setRoutePlannerDestinationToPFZ()`, sets `To` to the literal string
+  `"the fishing zone"`, one of `route_detection.py`'s own recognized PFZ
+  phrases, so the backend resolves the caller's already-known
+  `nearest_pfz` instead of trying to geocode it as a place name), a
+  stakeholder `<select>` (fisherman/coast_guard/disaster_management/
+  general - the same 4 categories `detect_stakeholder()` already
+  supports), and a "Find Safest Route" button. `submitRoutePlanner()`
+  (new file `frontend/js/routeplanner.js`) builds the equivalent natural-
+  language sentence via `buildRoutePlannerQuery()` (e.g. `"Find the
+  safest route from Kochi to the fishing zone for fishing"`) and POSTs it
+  to the SAME `/ask` endpoint - no new backend route. The stakeholder
+  hint is steered by including real trigger keywords from
+  `stakeholder.py`'s own `STAKEHOLDER_KEYWORDS` list (e.g. coast_guard →
+  "coast guard patrol and vessel monitoring, assessing rescue
+  readiness"), since the API has no explicit stakeholder-override
+  parameter - `detect_stakeholder()` is purely content-based. **Documented
+  limitation** (not a bug, a genuine content-detection edge case): a
+  "general" stakeholder selection combined with the PFZ quick-fill will
+  still classify as "fisherman" server-side, because "the fishing zone"
+  is itself a fisherman keyword and "general" has no keyword list of its
+  own to out-compete it - "general" is the zero-match fallback category.
+  The result renders via the exact same `renderRoute()` (map polylines/
+  markers) and `renderRouteInfoPanel()` (info card) functions Ask ORCA
+  already used, just targeting a dedicated result container
+  (`#routeplanner-result`) instead of the chat log.
+
+- **Knowledge Base tab** (`#tab-knowledge`) is a dedicated search box
+  framed around policy/safety questions, with 3 clickable example
+  buttons using real questions from this project's own RAG testing
+  (Section 14h/14k/14m): "Why is fishing banned before a cyclone?",
+  "What safety equipment should I carry before going to sea?", "What are
+  the best practices while fishing?". `submitKnowledgeBaseQuery()` (new
+  file `frontend/js/knowledgebase.js`) POSTs to the SAME `/ask` endpoint
+  and renders via `renderKnowledgeBaseResult()`. **This is genuinely new
+  UI, not just relocated UI**: it's the first place in the entire app
+  that displays `policy_answer.sources` (document title + page number +
+  a clickable source link) - that field existed in every policy RAG
+  response since Section 14h but no UI ever surfaced it until now. It
+  also honestly surfaces degraded-answer modes (`fallback_raw_chunks` /
+  `no_index_or_no_results` → a visible warning note) and a non-policy
+  query gets an honest "ORCA didn't recognize this as a policy question"
+  message rather than a fabricated answer.
+
+**Shared-map architecture generalized**: `tabs.js`'s `MAP_HOST_SLOTS` map
+(new in this stage) now lists all 3 tabs that host the single shared
+Leaflet `map` instance (`tab-ask` → its own section, matching the map's
+original static DOM position; `tab-riskmap` → `riskmap-map-slot`;
+`tab-routeplanner` → `routeplanner-map-slot`). `relocateMapIfNeeded()`
+moves the same `#map` DOM node via `appendChild` and calls
+`map.invalidateSize()` on every tab switch among these three - one map,
+one `/zones` fetch, one legend/control set, instead of 3 duplicate maps.
+
+**`renderRouteInfoPanel()` generalized** (`chat.js`): added an optional
+`containerId` parameter (default `'messages'`, preserving Ask ORCA's
+existing append-and-scroll chat behavior unchanged). When called with a
+different container id (Route Planner's `'routeplanner-result'`), it
+replaces the container's content instead of appending, since a dedicated
+result area should show only the latest query's result, not accumulate
+like a chat log.
+
+**Real browser verification** (same rigor as Section 14p - screenshots,
+actual clicks, console checked throughout, zero errors):
+- Risk Map: summary strip correctly showed 13 LOW / 10 MODERATE / 2 HIGH
+  / 0 CRITICAL (25 zones total, matching `/zones`'s real data), map
+  rendered full-width and larger than its Ask ORCA footprint, legend and
+  "Show All Zones" intact.
+- Route Planner: submitted a real From/To query through the form -
+  correctly triggered the same backend path as typing it in chat, real
+  result rendered (MODERATE — 34/100, 40.2 km, ~161 min, real polyline +
+  markers, boundary-warning panel present and correctly showing none
+  triggered for this route) - confirmed pixel-identical rendering logic
+  to the Ask ORCA chat flow.
+- Knowledge Base: tested against 2 real backend responses - one returned
+  a real cited answer with document title + page number + working source
+  link rendered correctly; the other honestly reported "the documents
+  don't specifically cover this" rather than fabricating an answer,
+  confirming the honest-no-match path also works against a live backend,
+  not just the mocked test.
+- Ask ORCA (Stage 1) re-verified still fully functional after all Stage
+  2 changes - no regressions.
+- Zero console errors across the entire live session.
+
+**Two testing-environment detours, recorded per Section 7's "verify then
+trust" habit - neither was a bug in the shipped code**: (1) a screenshot-
+pixel-to-CSS-pixel coordinate mismatch (screenshot dimensions didn't
+match `window.innerWidth/innerHeight`) caused early clicks to land on
+the wrong on-screen element - confirmed via `document.elementFromPoint()`
+and fixed by scaling click coordinates by the `screenshotWidth /
+window.innerWidth` ratio; (2) the browser served a stale cached copy of
+`map.js` across tab navigations (`python3 -m http.server` sends no
+explicit cache-control headers) even though `curl` confirmed the server
+had the updated file - a URL query-string cache-bust on the HTML did NOT
+fix it (cached `<script src>` sub-resources persisted); a true hard
+reload (Cmd+Shift+R) did.
+
+**New permanent regression test**: `frontend/tests/test_stage2_tabs_ui.js`
+(24 checks, same Node `vm`-mocked-DOM technique as `test_tabs_ui.js`/
+Section 7) covers the pieces that don't require a live network call: map
+relocation into all 3 slots + `invalidateSize()` firing, `updateRiskMapSummary()`'s
+per-level counting, `buildRoutePlannerQuery()`'s output for all 4
+stakeholder types (including asserting the documented "general" + PFZ
+edge case produces no extra hint), and `renderKnowledgeBaseResult()`'s
+source-citation rendering (title/page/link, both source-mode notes, the
+honest no-match path, and the honest error path).
+
+**Full regression suite re-run, zero regressions**:
+- Backend (unchanged, confirmed anyway): `test_phase7.py` (20/20),
+  `test_policy_agent.py` (35/35), `test_mosdac_ocean_eye.py` (21/21),
+  `test_boundary_geofencing.py` (all passing), `test_marine_protected_areas.py`
+  (8/8).
+- Frontend: `test_tabs_ui.js` (30/30), `test_boundary_warning_ui.js`
+  (13/13), `test_mpa_warning_ui.js` (22/22), plus the new
+  `test_stage2_tabs_ui.js` (24/24).
+
+**Files changed**: `frontend/index.html` (3 tab bodies replaced with real
+markup, 2 new `<script>` tags), `frontend/js/chat.js`
+(`renderRouteInfoPanel` signature), `frontend/js/map.js`
+(`updateRiskMapSummary`), `frontend/js/tabs.js` (rewritten -
+`MAP_HOST_SLOTS` generalized to 3 tabs), `frontend/css/style.css` (new
+styles for all 3 tabs' layouts). **New files**:
+`frontend/js/routeplanner.js`, `frontend/js/knowledgebase.js`,
+`frontend/tests/test_stage2_tabs_ui.js`.
+
+**Explicitly out of scope, unchanged from Section 14p's own deferral**:
+any visual/aesthetic redesign (colors, government branding, header/
+footer styling) - Stage 1 and Stage 2 together have now delivered full
+functional parity across all "coming soon" tabs; only visual polish
+remains undone.
+
+---
+
+### 14r. Two real bugs fixed for good + Stage 3 visual redesign — DONE (2026-09-20)
+
+Three-part task from real live user testing: (1) a genuine route-planning
+bug (long-distance routes crossing land), (2) the 4th instance of the
+recurring "random word fuzzy-geocoded to an unrelated real place" bug
+class, fixed systemically rather than patched again, and (3) a visual
+redesign of Home/Risk Map/About toward an official-Indian-government-site
+aesthetic. Route Planner and Knowledge Base tab **layouts** were
+explicitly out of scope and untouched.
+
+**PART 1 - Route distance sanity check.** `generate_candidate_routes()`
+(`route_engine.py`) only does straight-line interpolation + a
+perpendicular bend - fine for realistic short trips, but "route from
+Kochi to Mumbai" (1067 km) produced a route cutting straight across
+Maharashtra/Karnataka's interior, with nonsensical risk scores computed
+for waypoints sitting on dry land. **Fix**: a new
+`MAX_REALISTIC_ROUTE_DISTANCE_KM = 200.0` constant added to `config.py`,
+checked in `route_planning_agent` (`route_planning.py`) via
+`haversine_km()` BEFORE `generate_candidate_routes()` is ever called - if
+the straight-line distance between origin and destination exceeds it,
+`route_planning_agent` returns a `route_plan` with a graceful, honest
+`error` message (suggesting the nearest fishing zone or a nearer coastal
+town) and zero candidate routes, never a generated route.
+**Threshold reasoning, documented in `config.py` itself**: 200 km was
+chosen because it already represents roughly a full working day one-way
+at this app's own small-fishing-vessel speed assumption
+(`estimate_travel_time_minutes()`'s 15 km/h → 200 km takes ~13.3 hours),
+well beyond what a small-scale fishing vessel (this app's target user,
+per the FAO safety-at-sea document - Section 14m) would realistically
+travel point-to-point; beyond it, India's coastline curvature makes
+straight-line interpolation genuinely unreliable. Verified live:
+Kochi→Mumbai now returns the graceful message (confirmed via both
+`run_query()` directly and the real `/ask` endpoint via
+`fastapi.testclient.TestClient`, so the actual user-facing `answer` field
+was checked, not just internal state); Kochi→its own PFZ and
+Rameswaram→Thoothukudi (both realistic short routes) still work exactly
+as before, unaffected.
+
+**PART 2 - Greeting/help intent, fixed systemically.** "hello" and "i
+need help" both failed: "help" survives `planner.py`'s `STOPWORDS` list
+and becomes the last leftover word, which Open-Meteo fuzzy-geocoded to a
+real village called **Helpt** - the 4th real instance of this exact bug
+class (Warninglid - Section 14h, Fishing Creek - Section 14m, India -
+Section 14k/14l). Rather than patch a 5th individual trigger word, this
+task built a real systemic fix, following the EXACT same pattern
+`detect_policy_request()` already established: a new
+`app/graph/agents/greeting_detection.py` with `detect_greeting_or_help(query)`
+- matches common greetings (`hi`/`hello`/`hey`/`hii`/`good
+morning`/`namaste`/Hindi-Marathi equivalents in both Devanagari and
+romanized form) OR help-seeking phrasing (`help`/`how do i use
+this`/`what can you do`/`how does this work`/`what can i ask`), either
+one a complete, self-sufficient signal (unlike policy detection's
+two-part AND). **One real regex bug found and fixed while building
+this**: `\bनमस्ते\b` (with ASCII `\b` word boundaries) matched `False`
+against the Devanagari string itself, because Python's `\b` relies on
+`\w` transitions that don't work reliably across Devanagari combining
+vowel signs - fixed by dropping `\b` for the Devanagari patterns and
+using plain substring matching instead, the same approach
+`route_detection.py`'s own Hindi/Marathi keywords already use.
+`planner.py` imports `detect_greeting_or_help()` directly (mirroring
+`detect_policy_request()`'s own import) and checks it immediately AFTER
+the policy check but BEFORE the fuzzy fallback - ordered this way
+deliberately so a real policy question that happens to contain "help"
+(e.g. "help me understand why fishing is banned before a cyclone") is
+still answered as policy, not swallowed into a generic onboarding
+message; confirmed via a real test. A new `is_greeting_or_help` state
+field flows through to `synthesis_agent`, which returns a deterministic
+(no Gemini call - this should never vary) onboarding message from a new
+`ONBOARDING_MESSAGES` dict (English/Hindi/Marathi), reusing REAL example
+questions already used elsewhere in the app (the Ask ORCA "Try:" examples
+and the Knowledge Base example buttons - Section 14q), so every example
+in the onboarding message genuinely works if a user tries it.
+
+**A second real bug found DURING live browser verification of Part
+2, and fixed**: typing "hello" into the Ask ORCA chat produced the
+correct onboarding answer bubble, immediately followed by a bogus SECOND
+bot message: "Could not reach the backend. Is it running on
+localhost:8000?" Root cause: `chat.js`'s `sendQuery()` unconditionally
+read `data.map.user_location` after the `data.error` check, but the "no
+location_data" response shape (`routes.py`'s own branch, present since
+Section 14h for pure policy questions, and now also hit by greetings) has
+`map: null` - this threw a `TypeError`, which landed in the generic
+network-failure `catch` block and displayed a misleading message that
+has nothing to do with what actually went wrong. **This was a genuine
+pre-existing bug**, latent since Section 14h, that would have affected
+ANY pure policy question typed directly into the Ask ORCA chat (as
+opposed to the dedicated Knowledge Base tab, which uses its own separate
+`knowledgebase.js` rendering path and never hit this code) - Part 2's new
+greeting feature simply was the first thing to newly and reliably
+exercise it during real testing. **Fix**: wrapped the map-marker-drawing
+block in `chat.js` in `if (data.map) { ... }`, mirroring the existing
+`if (pfz)` null-guard pattern already used one level deeper in the same
+function. Verified live: "hello" now produces exactly one bot message
+(the real onboarding text), zero console errors; a normal risk query
+("is it safe to fish near Kochi") still renders its risk card and map
+markers identically to before.
+
+**New permanent regression tests**:
+`backend/tests/test_route_distance_and_greeting.py` (36 checks) covers
+both Part 1 and Part 2 end-to-end via `run_query()` and a real
+`fastapi.testclient.TestClient` call to `/ask` - including the
+policy-detection-runs-before-greeting-detection ordering guarantee, and a
+direct check that no answer ever mentions "Helpt".
+`frontend/tests/test_chat_no_location_response.js` (5 checks) is a
+dedicated regression test for the `chat.js` bug: mocks `fetch` to resolve
+with the exact "no location_data" shape and confirms `sendQuery()`
+produces exactly one bot message (the real answer), never a second
+spurious network-error message.
+
+**PART 3 - Visual redesign (Home, Risk Map, About only; Route Planner and
+Knowledge Base layouts untouched per explicit instruction).** Real,
+specific feedback from live user testing drove every change below - this
+was not a speculative restyle.
+
+- **Site-wide masthead** (`index.html`/`style.css`): a new slim
+  `#gov-utility-bar` above the main nav (small factual text: "Smart India
+  Hackathon · Problem Statement 26176 · Prototype — Decision Support
+  Only, Not an Official Advisory" - honest framing, never claiming to be
+  an actual government service) and a new `#tricolor-stripe` (a plain
+  3-color bar, saffron/white/green) directly below the nav - the
+  structural pattern real Indian government sites (mausam.imd.gov.in,
+  ndma.gov.in - referenced directly from this project's own MOSDAC/NDMA
+  integration work) use above their main navigation, using only a plain
+  decorative color bar, deliberately never any emblem/seal/government
+  branding. Added Google Fonts (`Merriweather` for headings - a
+  formal/document serif; `Inter` for body text) and restyled the nav tabs
+  uppercase with tighter letter-spacing and a saffron active-tab
+  underline (was green) to tie into the new color motif.
+- **Home tab**: replaced the plain heading + stat grid with a proper hero
+  band (`#home-hero`, navy gradient, large serif title, eyebrow line,
+  subtitle, mission text), refined stat cards (smaller, top-accent-border
+  style instead of plain boxes), a NEW "Explore ORCA" section with 4
+  clickable `.feature-card` buttons (one per major capability - Ask ORCA/
+  Risk Map/Route Planner/Knowledge Base) that call `showTab('tab-x')`
+  directly, turning "go check out the other tabs" from a single sentence
+  into a real visual call-to-action, and a NEW `.pipeline-diagram`
+  showing the actual multi-agent LangGraph structure (Planner → parallel
+  specialists [Weather/Ocean/Geospatial/Stakeholder/Route-Policy] → Risk
+  Engine → Synthesis) - a genuine, accurate simplified representation of
+  `workflow.py`'s real topology (Section 6b), not decorative filler.
+- **Risk Map summary strip**: redesigned from Section 14q's original
+  oversized-colored-digit cards (real feedback: "looks kiddish") to a
+  compact professional stat-bar - small number, a colour-coded LEFT
+  BORDER accent instead of a giant colored digit, tighter horizontal
+  spacing, all inline in one row instead of 4 large boxes. Underlying
+  `updateRiskMapSummary()` logic and element IDs (`riskmap-count-low`
+  etc.) are completely unchanged, so `test_stage2_tabs_ui.js`'s existing
+  24 checks needed zero modification and still pass.
+- **About & Data Sources**: replaced the plain HTML `<table>` with a
+  responsive `.data-sources-grid` of individual cards, and replaced plain
+  colored-text status labels with proper `.badge` pill styling
+  (`badge-live`/`badge-live-derived`/`badge-mock`) for clearer visual
+  distinction; the knowledge-base document list became a `.doc-grid` of
+  left-accent-bordered cards instead of a plain bulleted list. Stronger
+  typographic hierarchy throughout (serif headings, underlined `h2`
+  section dividers).
+- Removed the now-fully-unused `.coming-soon` CSS rule (dead since
+  Section 14q replaced all 3 placeholder tabs with real content).
+
+**Real browser verification for Part 3** (screenshots, real clicks,
+console checked): Home hero/stat-cards/feature-cards/pipeline diagram all
+render correctly; clicking the "Risk Map" feature card correctly
+navigates via `showTab()` and the relocated map loads with real zone
+data; Risk Map's new compact stat-bar correctly displayed real live
+counts (12 Low / 12 Moderate / 1 High / 0 Critical); About page's card
+grid and badge pills render correctly with proper LIVE/LIVE-DERIVED/MOCK
+distinction. Zero console errors across the entire session.
+
+**Full regression suite re-run after ALL three parts, zero regressions**:
+- Backend: `test_phase7.py` (20/20), `test_policy_agent.py` (35/35),
+  `test_mosdac_ocean_eye.py` (21/21), `test_boundary_geofencing.py` (all
+  passing), `test_marine_protected_areas.py` (8/8), plus the new
+  `test_route_distance_and_greeting.py` (36/36).
+- Frontend: `test_tabs_ui.js` (30/30), `test_boundary_warning_ui.js`
+  (13/13), `test_mpa_warning_ui.js` (22/22), `test_stage2_tabs_ui.js`
+  (24/24), plus the new `test_chat_no_location_response.js` (5/5).
+
+**Files changed**: `backend/app/config.py`
+(`MAX_REALISTIC_ROUTE_DISTANCE_KM`), `backend/app/graph/agents/route_planning.py`
+(distance check before route generation), `backend/app/graph/agents/planner.py`
+(greeting/help guard), `backend/app/graph/agents/synthesis.py`
+(onboarding-message branch), `backend/app/graph/state.py`
+(`is_greeting_or_help` field), `frontend/index.html` (masthead, Home/Risk
+Map/About markup), `frontend/css/style.css` (new masthead/hero/feature/
+pipeline/badge/card styles), `frontend/js/chat.js` (`data.map` null
+guard). **New files**: `backend/app/graph/agents/greeting_detection.py`,
+`backend/tests/test_route_distance_and_greeting.py`,
+`frontend/tests/test_chat_no_location_response.js`.
+
+---
+
+### 14s. Hard-safety override banner made visible in the risk card — DONE (2026-09-20)
+
+Bug: the risk card in `chat.js` never explained WHY `overall_level` and
+`overall_score` can look inconsistent (e.g. "CRITICAL — 55/100", which
+looks wrong against the stated 0-24/25-49/50-74/75-100 bands unless you
+already know the Section 14n hard-safety override layer fired). The API
+response has carried `pre_override_level`/`override_fired`/
+`override_reasons` since Section 14n - this data just never reached the
+screen.
+
+**Fix, in `renderRiskCard()` (`chat.js`)**: whenever `risk.override_fired`
+is `true`, a new banner renders at the very top of the risk card - `⚠️
+Escalated from {pre_override_level} to {overall_level}: {override_reasons
+joined}` - built from the exact same visual PATTERN as Section 14e's
+existing route boundary-warning banner (a colored callout at the top of
+the card, negative margin to bleed to the card's edges, a `border-bottom`
+accent, a pulsing animation). **Color choice, deliberately different
+reasoning from boundary/MPA**: reuses the existing `risk-badge-critical`
+red palette (`#f8d7da` / `#dc3545` / `#721c24`) rather than inventing a
+third color language - a boundary or MPA warning is a categorically
+DIFFERENT kind of hazard from weather risk (which is why Section 14e/14o
+deliberately picked magenta/teal, unrelated to the risk-level palette),
+but this banner is explaining a risk-SEVERITY fact (why the number and
+the label disagree), so it correctly belongs in the same red
+"this is serious" language the risk badges already use. New CSS class:
+`.risk-override-banner`, reusing the existing `boundary-pulse` keyframe.
+
+**Route Planner / Knowledge Base: checked whether override data could
+ever appear there, per the task's explicit instruction - confirmed it
+structurally cannot, so neither `routeplanner.js` nor `knowledgebase.js`
+needed any change.** Verified by reading the actual backend code, not
+assumed:
+- `route_planning_agent` (`route_planning.py`) scores every route
+  waypoint sample by calling `calculate_all_metrics()` directly - it
+  never imports or calls `apply_safety_override()` at all (confirmed via
+  `grep` across the file). This means a candidate route's
+  `route_risk_score`/`route_risk_level` NEVER goes through the hard-
+  safety override layer, and `_build_route_field()` (`routes.py`) never
+  adds `override_fired`/`pre_override_level`/`override_reasons` to a
+  route candidate dict in the API response - the fields simply don't
+  exist there for `renderRouteInfoPanel()` to read.
+- `policy_answer` (Knowledge Base) carries no risk data at all -
+  `{answer, mode, sources}` only - so there is nothing override-related
+  to ever surface there.
+- **This is flagged here as an honest, real finding, not silently
+  expanded into a fix**: route risk scoring currently has NO hard-safety
+  override protection at all, meaning a route sample sitting in an active
+  cyclone alert or ≥4m "Very Rough" sea would score however the plain
+  weighted calculation says, never forced to at least CRITICAL/HIGH the
+  way the single-location Ask ORCA risk assessment is. Whether to wire
+  `apply_safety_override()` into route scoring is a real product decision
+  outside this task's scope (which only asked to make EXISTING override
+  data visible, not to change what data exists) - left for a future task,
+  same "flagged precisely rather than silently expanding scope"
+  discipline as Section 14k.
+- One subtlety confirmed correct: a MIXED query with both a resolved
+  location AND a route request (e.g. "route from Chennai to the fishing
+  zone") still runs Chennai's own standalone `risk_agent` independently
+  of route planning (Section 14h's "both pipelines run, independently"
+  precedent) - so if Chennai's own risk happens to be escalated, its risk
+  card (rendered alongside the separate route card) correctly shows the
+  new banner; the route card itself still won't, for the reason above.
+
+**New permanent regression test**:
+`frontend/tests/test_risk_override_banner_ui.js` (11 checks, same Node
+`vm`-mocked-DOM technique as `test_boundary_warning_ui.js`) - confirms
+the banner renders with the correct escalation text and both reasons for
+a Chennai-cyclone-style scenario, confirms it's absent for scenario 2
+(Kochi, no override), and includes a direct source-code check (reading
+`route_planning.py`) that `apply_safety_override` is never called there,
+so the "route data structurally cannot carry override info" finding
+above stays true even if the code changes later without this test being
+updated.
+
+**Real backend + browser verification**:
+- `run_query("should I go to sea near Chennai today")` (real, live -
+  Gemini quota was exhausted this session, same known Section 12
+  behavior, irrelevant to this deterministic risk-engine feature):
+  `overall_score: 55`, `overall_level: CRITICAL`,
+  `pre_override_level: HIGH`, `override_fired: true`,
+  `override_reasons`: both the cyclone-alert and lightning-detected
+  reasons - confirmed live in a real browser: the banner rendered exactly
+  "⚠️ Escalated from HIGH to CRITICAL: Active cyclone alert
+  (weather.cyclone_alert) forces CRITICAL, regardless of the weighted
+  score. Lightning activity detected (weather.lightning_alert) - forces
+  at least MODERATE." at the top of the CRITICAL — 55/100 card.
+- `run_query("is it safe to fish near Kochi")`: `override_fired: false`,
+  `pre_override_level == overall_level == "LOW"` - confirmed live in the
+  same browser session, side-by-side with the Chennai card: no banner,
+  no stray "Escalated from" text, card renders exactly as it did before
+  this task. Zero console errors throughout.
+
+**Full regression suite re-run, zero regressions**:
+- Backend: `test_phase7.py` (20/20), `test_policy_agent.py` (35/35),
+  `test_mosdac_ocean_eye.py` (21/21), `test_boundary_geofencing.py` (all
+  passing), `test_marine_protected_areas.py` (8/8),
+  `test_route_distance_and_greeting.py` (36/36).
+- Frontend: `test_tabs_ui.js` (30/30), `test_boundary_warning_ui.js`
+  (13/13), `test_mpa_warning_ui.js` (22/22), `test_stage2_tabs_ui.js`
+  (24/24), `test_chat_no_location_response.js` (5/5), plus the new
+  `test_risk_override_banner_ui.js` (11/11).
+
+**Files changed**: `frontend/js/chat.js` (`renderRiskCard()` banner),
+`frontend/css/style.css` (`.risk-override-banner`). **New file**:
+`frontend/tests/test_risk_override_banner_ui.js`. No backend changes -
+the override data already existed in full (Section 14n); this task was
+purely about surfacing it.
+
+---
+
+### 14t. Route scoring gains the SAME hard-safety override protection as normal risk queries — DONE (2026-09-20)
+
+Section 14s flagged a real gap: route risk scoring never called
+`apply_safety_override()` at all, meaning a route through an active
+cyclone or genuinely dangerous seas could look merely MODERATE just
+because averaging with calmer waypoints elsewhere brought the aggregate
+down. This task closes that gap - route scoring now gets the exact same
+protection the main Ask ORCA risk agent already has (Section 14n), and
+route SELECTION was redesigned so an escalated route can never win just
+because its pre-override math looked competitive.
+
+**Backend - override applied per-route, using its own worst waypoint**:
+`route_engine.py`'s `score_route()` already identifies each route's worst
+scoring sample (Section 5's "a route is only as safe as its most
+hazardous point" principle) - it now takes an additional optional
+`sample_conditions` parameter (a parallel list of the exact `(weather,
+ocean)` dict pairs each sample's `calculate_all_metrics()` call was given)
+and attaches the WORST sample's own pair to the route as
+`route['worst_sample_weather']`/`route['worst_sample_ocean']`. This keeps
+`score_route()`'s own job unchanged (pure aggregation/identification, no
+risk computation) - the actual override call happens in
+`route_planning_agent` (`route_planning.py`), mirroring `risk_agent`'s own
+calling convention exactly: `apply_safety_override(route_risk_score,
+pre_override_level, worst_sample_weather, worst_sample_ocean)`, storing
+the result as `route['pre_override_level']`/`route['route_risk_level']`
+(now the FINAL, possibly-escalated level)/`route['override_fired']`/
+`route['override_reasons']` - the identical four-field contract the main
+risk response already has, never hidden.
+
+**THE KEY DESIGN DECISION - selection had to become override-aware, not
+just label-aware**: simply adding these fields without changing selection
+would have been cosmetic only - a route could still get recommended by
+`select_recommended_route()`'s existing `combined_score` (risk score +
+distance penalty) even after being escalated to CRITICAL, since
+`apply_safety_override()` deliberately never touches the raw
+`route_risk_score` (Section 14n's own invariant, preserved here). Fixed
+by making each route's FINAL `route_risk_level` the PRIMARY sort key
+(`_LEVEL_SEVERITY = {"LOW": 0, "MODERATE": 1, "HIGH": 2, "CRITICAL": 3}`,
+a new local constant in `route_engine.py` - kept local rather than
+imported from `risk_engine.py` so this module's own "pure geometry, no
+risk scoring" boundary stays intact, since this is only ranking
+pre-computed level LABELS, not computing a risk value), with the existing
+`combined_score` used ONLY as a tie-breaker among routes at the SAME
+severity tier: `min(scored_routes, key=lambda r: (_LEVEL_SEVERITY[r["route_risk_level"]],
+r["combined_score"]))`. A CRITICAL route can now never beat a HIGH-or-
+lower route regardless of distance; among routes at the same tier
+(e.g. two LOW routes), the existing risk+distance tradeoff still decides
+exactly as before Section 14t - no regression to that logic.
+
+**A related honesty fix in `build_route_explanation()`**: since
+`route_risk_score` is never touched by the override, comparing raw scores
+alone in the deterministic "why this route" text could read backwards -
+e.g. "recommended has notably lower marine risk (X vs Y)" when the
+shortest (skipped) route's raw score Y might actually be LOWER than the
+recommended route's X, if the shortest route was passed over specifically
+because of a level escalation, not a raw-score loss. Added a new branch:
+when the shortest route was skipped specifically because
+`shortest.override_fired` is true AND its final severity exceeds the
+recommended route's, the explanation now says so honestly ("X was chosen
+instead of the shortest route (Y), which is escalated to {level} by a
+hard safety override: {reasons}") instead of comparing numbers that would
+otherwise look contradictory.
+
+**API contract change** (`app/api/routes.py`'s `_build_route_field()`):
+each candidate route in the `route.candidate_routes` API field now
+additionally carries `pre_override_level`/`override_fired`/
+`override_reasons`, alongside the existing `route_risk_score`/
+`route_risk_level` - additive only, same pattern as every prior route
+field addition (boundary/MPA warnings, Section 14o).
+
+**Frontend - exact same banner pattern, confirmed to reach BOTH real
+surfaces**: `renderRouteInfoPanel()` (`chat.js`) gained the identical
+`overrideBannerHtml` construction Section 14s already built for
+`renderRiskCard()` - "⚠️ Escalated from {pre_override_level} to
+{route_risk_level}: {override_reasons joined}" - reading the RECOMMENDED
+route's own fields, placed topmost among the route card's banners (ahead
+of the existing boundary/MPA banners - a hard-safety concern is a more
+urgent category than a territorial/conservation-area proximity note).
+**Confirmed, not assumed, per the task's explicit instruction**: Ask ORCA
+chat (`chat.js` calling `renderRouteInfoPanel(data.route)`) and the Route
+Planner tab (`routeplanner.js` calling `renderRouteInfoPanel(data.route,
+'routeplanner-result')`) call the literal SAME function - one code change
+covers both surfaces, verified live in both.
+
+**New permanent regression tests**:
+- `backend/tests/test_route_override.py` (20 checks), two deliberate
+  tiers: **Part 1** is a focused UNIT test directly on
+  `select_recommended_route()` with hand-constructed synthetic route
+  dicts, proving the SELECTION ALGORITHM ITSELF is override-aware (a
+  sanity check confirms raw combined_score ALONE would have picked the
+  wrong CRITICAL route, then confirms the real function correctly
+  doesn't). **Part 2** is an END-TO-END test through the real
+  `route_planning_agent` with `fetch_live_wind`/`fetch_live_marine`
+  mocked (same patching convention as `test_phase7.py`'s Scenario 4 -
+  patched at the module that USES them) so the Direct route's own
+  midpoint waypoint between Kochi and its real `nearest_pfz` genuinely
+  has a 4.5m "Very Rough" wave reading while Route B/Route C (which bend
+  away from that exact point) stay calm - confirming the real worst-
+  waypoint-to-override wiring, that Route B/C are correctly NOT escalated,
+  that selection avoids the escalated Direct route, and that the fields
+  reach the actual `_build_route_field()` API shape. **Part 3** re-confirms
+  a fully calm scenario (no override anywhere) still recommends Direct
+  exactly as before Section 14t - zero regression to the existing
+  Kochi/Rameswaram behavior.
+- **Honest documented finding, not a cherry-picked result**: Part 2's
+  real end-to-end scenario does NOT ALSO demonstrate an
+  old-logic-would-have-picked-wrong case the way Part 1's synthetic one
+  does - for Kochi's real geometry, Route B/C's bend only adds ~2km
+  (~4.0 combined-score points) of detour, and the wave-risk metric
+  formula already saturates to a score of 100 at any wave height >=3m,
+  so ANY wave-triggered override in this specific short-route geometry
+  already carries a raw weighted score high enough to lose on
+  `combined_score` alone too. This is a genuine property of the numbers
+  in this particular scenario, not a flaw in the fix - Part 1's synthetic
+  case is what proves the algorithm is correct in principle (the fix
+  matters most for longer detours or milder trigger margins), and Part 2
+  proves the real wiring connects end-to-end.
+- `frontend/tests/test_route_override_banner_ui.js` (11 checks) - same
+  Node `vm`-mocked-DOM technique as `test_boundary_warning_ui.js`,
+  confirms the banner renders identically whether `renderRouteInfoPanel()`
+  is called with the default `'messages'` container (Ask ORCA) or
+  `'routeplanner-result'` (Route Planner tab), confirms correct placement
+  ahead of the boundary/MPA banner slots, and confirms it's absent for a
+  normal `override_fired: false` route.
+- `frontend/tests/test_risk_override_banner_ui.js` (Section 14s) **updated**:
+  its "route data structurally cannot carry override info" check has been
+  inverted to confirm the OPPOSITE is now true (`route_planning.py` DOES
+  call `apply_safety_override`), since Section 14t deliberately closed
+  the exact gap that check was locking in - left as a stale, actively
+  wrong assertion would have been worse than updating it.
+- `backend/tests/generate_route_fixtures.py` (Section 14e) updated to
+  mirror `route_planning_agent`'s new override step exactly, and
+  `frontend/tests/route_fixtures.json` regenerated against the real live
+  backend - the real regenerated `boundary_warning` scenario happened to
+  show `override_fired: true` (real live lightning detected along that
+  route at generation time) with `pre_override_level` and
+  `route_risk_level` both already `MODERATE` - a real demonstration of
+  Section 14n's own documented "override_fired can be true even with no
+  visible level change" design (the override CONDITION was genuinely
+  true, so it's surfaced as a fact, not hidden just because the weighted
+  score already happened to reach that floor on its own).
+
+**Real backend + live browser verification**:
+- "find the safest route from Chennai to the fishing zone" (Chennai has
+  an active mock `cyclone_alert` - Section 4): all 3 candidate routes
+  correctly escalated to CRITICAL (cyclone status is looked up per
+  ORIGIN/DESTINATION name, not per-waypoint, so it applies uniformly
+  across every route for this particular pair - a real, honestly-noted
+  limitation of this test case, not a flaw in the fix itself, which is
+  why the differentiated "safer alternative exists" scenario above was
+  proven via mocked waypoint data instead). Banner rendered correctly,
+  live, in BOTH the Ask ORCA chat AND the Route Planner tab for the exact
+  same query, confirming the shared-function claim above end-to-end, not
+  just in a mocked test.
+- "route from Kochi to the fishing zone": `override_fired: false` on
+  every candidate, no banner rendered, `route.candidate_routes` unaffected
+  in shape or values from before this task - confirmed live, side by side
+  with the Chennai case, in the same browser session. Zero console errors
+  throughout.
+
+**Full regression suite re-run, zero regressions**:
+- Backend: `test_phase7.py` (20/20), `test_policy_agent.py` (35/35),
+  `test_mosdac_ocean_eye.py` (21/21), `test_boundary_geofencing.py` (all
+  passing), `test_marine_protected_areas.py` (8/8),
+  `test_route_distance_and_greeting.py` (36/36), plus the new
+  `test_route_override.py` (20/20).
+- Frontend: `test_tabs_ui.js` (30/30), `test_boundary_warning_ui.js`
+  (13/13 - re-verified against the regenerated fixture),
+  `test_mpa_warning_ui.js` (22/22 - same), `test_stage2_tabs_ui.js`
+  (24/24), `test_chat_no_location_response.js` (5/5),
+  `test_risk_override_banner_ui.js` (11/11, updated), plus the new
+  `test_route_override_banner_ui.js` (11/11).
+
+**Files changed**: `backend/app/core/route_engine.py` (`score_route()`
+gains `sample_conditions`, new `_LEVEL_SEVERITY` constant,
+`select_recommended_route()` now severity-primary, `build_route_explanation()`
+gains the override-aware branch), `backend/app/graph/agents/route_planning.py`
+(per-route override call), `backend/app/api/routes.py`
+(`_build_route_field()` additive fields), `backend/tests/generate_route_fixtures.py`
+(mirrors the new override step), `frontend/tests/route_fixtures.json`
+(regenerated), `frontend/js/chat.js` (`renderRouteInfoPanel()` banner),
+`frontend/tests/test_risk_override_banner_ui.js` (updated finding).
+**New files**: `backend/tests/test_route_override.py`,
+`frontend/tests/test_route_override_banner_ui.js`.
 
 ---
 

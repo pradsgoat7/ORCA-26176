@@ -4,43 +4,312 @@
 <meta charset="UTF-8">
 <title>ORCA - Marine Intelligence Assistant</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@400;700&amp;family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
 
-<div id="chat-panel">
-  <div id="header">
-    <h1>ORCA</h1>
-    <p>Marine Intelligence Assistant (prototype - demo data)</p>
-  </div>
-  <div id="messages"></div>
-  <div class="examples">
-    Try:
-    <button onclick="askExample('Is it safe to fish tomorrow near Kochi?')">Is it safe to fish tomorrow near Kochi?</button>
-    <button onclick="askExample('Should I go to sea near Chennai today?')">Should I go to sea near Chennai today?</button>
-    <button onclick="askExample('What are the conditions near Visakhapatnam?')">What are the conditions near Visakhapatnam?</button>
-  </div>
-  <div id="lang-row">
-    <span>Speak in:</span>
-    <button class="lang-btn active" data-lang="en-IN" onclick="setSpeechLang(this)">English</button>
-    <button class="lang-btn" data-lang="hi-IN" onclick="setSpeechLang(this)">हिंदी</button>
-    <button class="lang-btn" data-lang="mr-IN" onclick="setSpeechLang(this)">मराठी</button>
-  </div>
-  <div id="input-row">
-    <input id="query-input" type="text" placeholder="Ask about fishing safety, e.g. Kochi..." onkeydown="if(event.key==='Enter') sendQuery()">
-    <button id="mic-btn" onclick="toggleListening()" title="Speak your question">🎤</button>
-    <button id="voice-output-btn" onclick="toggleVoiceOutput(this)" title="Voice output on - click to mute">🔊</button>
-    <button id="send-btn" onclick="sendQuery()">Ask</button>
-  </div>
-</div>
+<div id="gov-utility-bar">Smart India Hackathon &middot; Problem Statement 26176 &middot; Prototype — Decision Support Only, Not an Official Advisory</div>
 
-<div id="map"></div>
+<nav id="top-nav">
+  <div id="nav-brand">
+    <span id="nav-brand-title">ORCA</span>
+    <span id="nav-brand-subtitle">Marine Intelligence Platform</span>
+  </div>
+  <button class="tab-btn" data-tab="tab-home">Home</button>
+  <button class="tab-btn" data-tab="tab-ask">Ask ORCA</button>
+  <button class="tab-btn" data-tab="tab-riskmap">Risk Map</button>
+  <button class="tab-btn" data-tab="tab-routeplanner">Route Planner</button>
+  <button class="tab-btn" data-tab="tab-knowledge">Knowledge Base</button>
+  <button class="tab-btn" data-tab="tab-about">About &amp; Data Sources</button>
+</nav>
+<div id="tricolor-stripe" aria-hidden="true"><span></span><span></span><span></span></div>
+
+<main id="tab-content">
+
+  <section id="tab-home" class="tab-panel">
+    <div id="home-hero">
+      <div class="home-hero-inner">
+        <div class="home-hero-eyebrow">Smart India Hackathon &middot; Problem Statement 26176 &middot; ISRO / Disaster Management</div>
+        <h1 class="home-hero-title">ORCA</h1>
+        <p class="home-hero-subtitle">Marine EcOsystem Reasoning with Collaborative Agents</p>
+        <p class="home-hero-desc">
+          An Agentic AI platform that lets fishermen, coast guard officers, disaster management
+          officials, and the general public ask natural-language questions about marine safety and
+          get answers grounded in real live weather/ocean data, a deterministic risk engine, and a
+          retrieval-grounded knowledge base of real government and institutional documents — never
+          invented numbers, never fabricated citations.
+        </p>
+      </div>
+    </div>
+
+    <div class="page-content">
+      <div class="stat-grid">
+        <div class="stat-card">
+          <div class="stat-number">25</div>
+          <div class="stat-label">Coastal cities monitored</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-number">5</div>
+          <div class="stat-label">Government/institutional documents indexed (NDMA, IMD, CMFRI &times;2, FAO)</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-number">3</div>
+          <div class="stat-label">Languages supported (English, Hindi, Marathi)</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-number">6</div>
+          <div class="stat-label">Live environmental parameters tracked (wind, wave, SST, salinity, current, mixed layer depth)</div>
+        </div>
+      </div>
+
+      <h2 class="home-section-title">Explore ORCA</h2>
+      <div class="feature-grid">
+        <button type="button" class="feature-card" onclick="showTab('tab-ask')">
+          <span class="feature-icon">💬</span>
+          <span class="feature-title">Ask ORCA</span>
+          <span class="feature-desc">Natural-language marine safety Q&amp;A with live risk scoring — in English, Hindi, or Marathi.</span>
+        </button>
+        <button type="button" class="feature-card" onclick="showTab('tab-riskmap')">
+          <span class="feature-icon">🗺️</span>
+          <span class="feature-title">Risk Map</span>
+          <span class="feature-desc">A live dashboard of every monitored coastal zone, colour-coded by current risk level.</span>
+        </button>
+        <button type="button" class="feature-card" onclick="showTab('tab-routeplanner')">
+          <span class="feature-icon">🧭</span>
+          <span class="feature-title">Route Planner</span>
+          <span class="feature-desc">Compares candidate marine routes and recommends the safest one — not just the shortest.</span>
+        </button>
+        <button type="button" class="feature-card" onclick="showTab('tab-knowledge')">
+          <span class="feature-icon">📚</span>
+          <span class="feature-title">Knowledge Base</span>
+          <span class="feature-desc">Ask about regulations or safety practices, answered from real cited government documents.</span>
+        </button>
+      </div>
+
+      <h2 class="home-section-title">How ORCA reasons</h2>
+      <p class="home-section-intro">Every query runs through a real multi-agent LangGraph workflow, not a single
+        opaque model call — each stage below is an independent, inspectable agent.</p>
+      <div class="pipeline-diagram">
+        <div class="pipeline-stage">
+          <div class="pipeline-box pipeline-box-planner">Planner<span>resolves location, language, intent</span></div>
+        </div>
+        <div class="pipeline-arrow">→</div>
+        <div class="pipeline-stage pipeline-stage-parallel">
+          <div class="pipeline-box">Weather</div>
+          <div class="pipeline-box">Ocean</div>
+          <div class="pipeline-box">Geospatial</div>
+          <div class="pipeline-box">Stakeholder</div>
+          <div class="pipeline-box">Route / Policy</div>
+        </div>
+        <div class="pipeline-arrow">→</div>
+        <div class="pipeline-stage">
+          <div class="pipeline-box pipeline-box-risk">Risk Engine<span>deterministic scoring + safety overrides</span></div>
+        </div>
+        <div class="pipeline-arrow">→</div>
+        <div class="pipeline-stage">
+          <div class="pipeline-box pipeline-box-synthesis">Synthesis<span>final grounded answer</span></div>
+        </div>
+      </div>
+
+      <p class="home-cta">Go to the <b>Ask ORCA</b> tab to try it, or see <b>About &amp; Data Sources</b> for exactly what's live vs. demo data.</p>
+    </div>
+  </section>
+
+  <section id="tab-ask" class="tab-panel">
+    <div id="chat-panel">
+      <div id="header">
+        <h1>ORCA</h1>
+        <p>Marine Intelligence Assistant (prototype - demo data)</p>
+      </div>
+      <div id="messages"></div>
+      <div class="examples">
+        Try:
+        <button onclick="askExample('Is it safe to fish tomorrow near Kochi?')">Is it safe to fish tomorrow near Kochi?</button>
+        <button onclick="askExample('Should I go to sea near Chennai today?')">Should I go to sea near Chennai today?</button>
+        <button onclick="askExample('What are the conditions near Visakhapatnam?')">What are the conditions near Visakhapatnam?</button>
+      </div>
+      <div id="lang-row">
+        <span>Speak in:</span>
+        <button class="lang-btn active" data-lang="en-IN" onclick="setSpeechLang(this)">English</button>
+        <button class="lang-btn" data-lang="hi-IN" onclick="setSpeechLang(this)">हिंदी</button>
+        <button class="lang-btn" data-lang="mr-IN" onclick="setSpeechLang(this)">मराठी</button>
+      </div>
+      <div id="input-row">
+        <input id="query-input" type="text" placeholder="Ask about fishing safety, e.g. Kochi..." onkeydown="if(event.key==='Enter') sendQuery()">
+        <button id="mic-btn" onclick="toggleListening()" title="Speak your question">🎤</button>
+        <button id="voice-output-btn" onclick="toggleVoiceOutput(this)" title="Voice output on - click to mute">🔊</button>
+        <button id="send-btn" onclick="sendQuery()">Ask</button>
+      </div>
+    </div>
+    <div id="map"></div>
+  </section>
+
+  <section id="tab-riskmap" class="tab-panel">
+    <div id="riskmap-summary">
+      <div class="riskmap-summary-title">Zone Risk Summary</div>
+      <div class="riskmap-stat-bar">
+        <div class="riskmap-stat riskmap-stat-low">
+          <span class="riskmap-stat-count" id="riskmap-count-low">–</span>
+          <span class="riskmap-stat-label">Low</span>
+        </div>
+        <div class="riskmap-stat riskmap-stat-moderate">
+          <span class="riskmap-stat-count" id="riskmap-count-moderate">–</span>
+          <span class="riskmap-stat-label">Moderate</span>
+        </div>
+        <div class="riskmap-stat riskmap-stat-high">
+          <span class="riskmap-stat-count" id="riskmap-count-high">–</span>
+          <span class="riskmap-stat-label">High</span>
+        </div>
+        <div class="riskmap-stat riskmap-stat-critical">
+          <span class="riskmap-stat-count" id="riskmap-count-critical">–</span>
+          <span class="riskmap-stat-label">Critical</span>
+        </div>
+      </div>
+    </div>
+    <div id="riskmap-map-slot"></div>
+  </section>
+
+  <section id="tab-routeplanner" class="tab-panel">
+    <div id="routeplanner-panel">
+      <h2>🧭 Route Planner</h2>
+      <p class="routeplanner-intro">Find the safest route between two coastal points, scored by
+        ORCA's risk engine — not necessarily the shortest.</p>
+
+      <label class="routeplanner-label" for="rp-from">From</label>
+      <input id="rp-from" type="text" placeholder="e.g. Kochi">
+
+      <label class="routeplanner-label" for="rp-to">To</label>
+      <div class="routeplanner-to-row">
+        <input id="rp-to" type="text" placeholder="e.g. Chennai">
+        <button type="button" id="rp-pfz-btn" onclick="setRoutePlannerDestinationToPFZ()">📍 Nearest Fishing Zone</button>
+      </div>
+
+      <label class="routeplanner-label" for="rp-stakeholder">Planning for</label>
+      <select id="rp-stakeholder">
+        <option value="fisherman">Fisherman</option>
+        <option value="coast_guard">Coast Guard</option>
+        <option value="disaster_management">Disaster Management</option>
+        <option value="general">General</option>
+      </select>
+
+      <button id="rp-submit-btn" onclick="submitRoutePlanner()">Find Safest Route</button>
+      <div id="routeplanner-status"></div>
+      <div id="routeplanner-result"></div>
+    </div>
+    <div id="routeplanner-map-slot"></div>
+  </section>
+
+  <section id="tab-knowledge" class="tab-panel">
+    <div class="page-content">
+      <h1>Knowledge Base</h1>
+      <p>Ask about regulations, cyclone procedures, or fishing safety practices — answers are
+        grounded in real government and institutional documents (see <b>About &amp; Data
+        Sources</b> for the full list), never freely generated.</p>
+
+      <div id="kb-input-row">
+        <input id="kb-input" type="text"
+               placeholder="Ask about regulations, cyclone procedures, or fishing safety practices..."
+               onkeydown="if(event.key==='Enter') submitKnowledgeBaseQuery()">
+        <button id="kb-submit-btn" onclick="submitKnowledgeBaseQuery()">Ask</button>
+      </div>
+
+      <div class="kb-examples">
+        Try:
+        <button onclick="askKnowledgeBaseExample('Why is fishing banned before a cyclone?')">Why is fishing banned before a cyclone?</button>
+        <button onclick="askKnowledgeBaseExample('What safety equipment should I carry before going to sea?')">What safety equipment should I carry before going to sea?</button>
+        <button onclick="askKnowledgeBaseExample('What are the best practices while fishing?')">What are the best practices while fishing?</button>
+      </div>
+
+      <div id="kb-result"></div>
+    </div>
+  </section>
+
+  <section id="tab-about" class="tab-panel">
+    <div class="page-content page-content-wide">
+      <h1>About &amp; Data Sources</h1>
+      <p class="about-intro">
+        This is a transparency page. Every field ORCA shows is either genuinely
+        <span class="badge badge-live">LIVE</span> (fetched from a real API at query time),
+        <span class="badge badge-live-derived">LIVE-DERIVED</span> (computed from a real live
+        field), or <span class="badge badge-mock">MOCK</span> (a fixed demo value, used only
+        because no free live source exists for it) — never presented as more real than it
+        actually is.
+      </p>
+
+      <div class="data-sources-grid">
+        <div class="data-source-card">
+          <div class="dsc-header"><span class="dsc-field">Wind speed, precipitation</span><span class="badge badge-live">LIVE</span></div>
+          <div class="dsc-source">Open-Meteo Forecast API (free, no key)</div>
+        </div>
+        <div class="data-source-card">
+          <div class="dsc-header"><span class="dsc-field">Wave height</span><span class="badge badge-live">LIVE</span></div>
+          <div class="dsc-source">Open-Meteo Marine API (free, no key)</div>
+        </div>
+        <div class="data-source-card">
+          <div class="dsc-header"><span class="dsc-field">Lightning alert</span><span class="badge badge-live-derived">LIVE-DERIVED</span></div>
+          <div class="dsc-source">Inferred from Open-Meteo's WMO weather code (95/96/99 = thunderstorm)</div>
+        </div>
+        <div class="data-source-card">
+          <div class="dsc-header"><span class="dsc-field">Sea surface temperature</span><span class="badge badge-live">LIVE</span></div>
+          <div class="dsc-source">MOSDAC Ocean-Eye (ISRO) preferred; else Open-Meteo; else mock default</div>
+        </div>
+        <div class="data-source-card">
+          <div class="dsc-header"><span class="dsc-field">Salinity</span><span class="badge badge-live">LIVE</span></div>
+          <div class="dsc-source">MOSDAC Ocean-Eye (ISRO) — null if unreachable, no mock fallback</div>
+        </div>
+        <div class="data-source-card">
+          <div class="dsc-header"><span class="dsc-field">Ocean current speed</span><span class="badge badge-live">LIVE</span></div>
+          <div class="dsc-source">MOSDAC Ocean-Eye (ISRO) — null if unreachable, no mock fallback</div>
+        </div>
+        <div class="data-source-card">
+          <div class="dsc-header"><span class="dsc-field">Mixed layer depth</span><span class="badge badge-live">LIVE</span></div>
+          <div class="dsc-source">MOSDAC Ocean-Eye (ISRO) — null if unreachable, no mock fallback</div>
+        </div>
+        <div class="data-source-card">
+          <div class="dsc-header"><span class="dsc-field">Chlorophyll</span><span class="badge badge-mock">MOCK</span></div>
+          <div class="dsc-source">No free live API exists for this</div>
+        </div>
+        <div class="data-source-card">
+          <div class="dsc-header"><span class="dsc-field">Cyclone alert</span><span class="badge badge-mock">MOCK</span></div>
+          <div class="dsc-source">No free live cyclone-tracking API exists</div>
+        </div>
+        <div class="data-source-card">
+          <div class="dsc-header"><span class="dsc-field">Potential Fishing Zone (PFZ) location</span><span class="badge badge-mock">MOCK</span></div>
+          <div class="dsc-source">INCOIS has no public API — confirmed via direct research</div>
+        </div>
+      </div>
+
+      <h2>Knowledge base documents</h2>
+      <p>Policy/explanatory questions ("why is fishing banned before a cyclone?") are answered by
+        retrieving real passages from these documents and grounding an AI-composed answer strictly
+        in that retrieved text — never freely generated.</p>
+      <div class="doc-grid">
+        <div class="doc-card"><b>National Disaster Management Guidelines: Management of Cyclones</b><span>National Disaster Management Authority (NDMA), Government of India</span></div>
+        <div class="doc-card"><b>Cyclone Warning in India: Standard Operation Procedure</b><span>India Meteorological Department (IMD)</span></div>
+        <div class="doc-card"><b>Overview of Marine Fisheries of India</b><span>ICAR-Central Marine Fisheries Research Institute (CMFRI) / AARDO, 2023</span></div>
+        <div class="doc-card"><b>Marine Fisheries Policy Brief - Kerala</b><span>ICAR-Central Marine Fisheries Research Institute (CMFRI)</span></div>
+        <div class="doc-card"><b>Safety at Sea for Small-Scale Fishers</b><span>Food and Agriculture Organization of the United Nations (FAO), 2021</span></div>
+      </div>
+
+      <p class="disclaimer">ORCA is a hackathon prototype (Smart India Hackathon, Problem Statement
+        26176). It provides decision support only — it is not certified maritime navigation and not
+        an official government advisory service.</p>
+    </div>
+  </section>
+
+</main>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="js/config.js"></script>
 <script src="js/map.js"></script>
 <script src="js/voice.js"></script>
 <script src="js/chat.js"></script>
+<script src="js/routeplanner.js"></script>
+<script src="js/knowledgebase.js"></script>
+<script src="js/tabs.js"></script>
 
 </body>
 </html>

@@ -9,12 +9,15 @@ Risk Engine - not a second/duplicate risk system.
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
-from app.config import DEFAULT_WIND_SPEED_KMPH, DEFAULT_WAVE_HEIGHT_M, THUNDERSTORM_CODES
-from app.core.risk_engine import calculate_all_metrics, classify_level
+from app.config import (
+    DEFAULT_WIND_SPEED_KMPH, DEFAULT_WAVE_HEIGHT_M, THUNDERSTORM_CODES,
+    MAX_REALISTIC_ROUTE_DISTANCE_KM,
+)
+from app.core.risk_engine import apply_safety_override, calculate_all_metrics, classify_level
 from app.core.route_engine import (
     generate_candidate_routes, estimate_travel_time_minutes,
     score_route, select_recommended_route, build_route_explanation,
-    check_boundary_proximity, check_mpa_proximity,
+    check_boundary_proximity, check_mpa_proximity, haversine_km,
 )
 from app.data.loader import MARINE_DATA, LOCATION_ALIASES
 from app.graph.state import ORCAState
@@ -116,6 +119,32 @@ def route_planning_agent(state: ORCAState) -> ORCAState:
 
     origin = (endpoints["origin"]["lat"], endpoints["origin"]["lon"])
     destination = (endpoints["destination"]["lat"], endpoints["destination"]["lon"])
+
+    # Straight-line distance check BEFORE generating any route - see
+    # PROJECT_CONTEXT.md Section 14r. generate_candidate_routes() only
+    # does straight-line interpolation + a perpendicular bend, which looks
+    # fine for realistic short coastal/fishing-zone trips but produces a
+    # nonsensical route cutting straight across land (e.g. Kochi->Mumbai
+    # crossing Karnataka/Maharashtra's interior) once the distance is long
+    # enough for India's coastline curvature to matter. Rather than
+    # generate that route and let it silently produce a land-based risk
+    # score, refuse honestly upfront.
+    straight_line_km = haversine_km(origin[0], origin[1], destination[0], destination[1])
+    if straight_line_km > MAX_REALISTIC_ROUTE_DISTANCE_KM:
+        return {
+            "route_plan": {
+                "error": (
+                    f"{endpoints['origin']['name']} and {endpoints['destination']['name']} are "
+                    f"about {round(straight_line_km)} km apart in a straight line - too far for "
+                    f"ORCA's route planner, which is designed for realistic short-range coastal "
+                    f"and fishing-zone routes (up to {round(MAX_REALISTIC_ROUTE_DISTANCE_KM)} km), "
+                    f"not long-distance point-to-point travel. Try asking for a route to the "
+                    f"nearest fishing zone, or to a nearer coastal town instead."
+                ),
+                "candidate_routes": [],
+            }
+        }
+
     candidate_routes = generate_candidate_routes(origin, destination)
 
     # Flatten (route, waypoint) pairs so environmental sampling can run in
@@ -164,6 +193,7 @@ def route_planning_agent(state: ORCAState) -> ORCAState:
 
         sample_overall_scores = []
         sample_metrics_lists = []
+        sample_conditions = []
         for s in samples:
             weather = {
                 "wind_speed_kmph": s["wind_speed_kmph"],
@@ -175,9 +205,28 @@ def route_planning_agent(state: ORCAState) -> ORCAState:
             structured = calculate_all_metrics(weather, ocean, stakeholder_type)
             sample_overall_scores.append(structured["overall_score"])
             sample_metrics_lists.append(structured["metrics"])
+            sample_conditions.append((weather, ocean))
 
-        score_route(route, sample_overall_scores, sample_metrics_lists)
-        route["route_risk_level"] = classify_level(route["route_risk_score"])
+        score_route(route, sample_overall_scores, sample_metrics_lists, sample_conditions)
+        pre_override_level = classify_level(route["route_risk_score"])
+
+        # Hard-safety override layer (Section 14n), now applied to routes
+        # too (Section 14t) - using the SAME worst waypoint score_route()
+        # just identified, never a separate/different point along the
+        # route. Mirrors risk_agent's own call exactly: only the LEVEL can
+        # be escalated, route_risk_score is left untouched (still the raw
+        # worst-sample weighted score), and nothing here is silent -
+        # pre_override_level/override_fired/override_reasons are all kept
+        # on the route dict for the frontend to surface, same fields as
+        # the main risk response.
+        override = apply_safety_override(
+            route["route_risk_score"], pre_override_level,
+            route["worst_sample_weather"], route["worst_sample_ocean"],
+        )
+        route["pre_override_level"] = pre_override_level
+        route["route_risk_level"] = override["level"]
+        route["override_fired"] = override["override_fired"]
+        route["override_reasons"] = override["override_reasons"]
 
         # Geofencing: how close does this route get to India's EEZ boundary?
         # Local polygon geometry only, no network call, so it's fine to run

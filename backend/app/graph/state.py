@@ -16,6 +16,7 @@ class ORCAState(TypedDict, total=False):
     route_plan: Optional[dict]
     policy_request: Optional[dict]
     policy_answer: Optional[dict]
+    is_greeting_or_help: Optional[bool]
     location_key: Optional[str]
     location_data: Optional[dict]
     weather: Optional[dict]

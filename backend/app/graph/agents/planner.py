@@ -8,6 +8,7 @@ import re
 from typing import Optional
 
 from app.data.loader import MARINE_DATA, LOCATION_ALIASES
+from app.graph.agents.greeting_detection import detect_greeting_or_help
 from app.graph.agents.policy_detection import detect_policy_request
 from app.graph.state import ORCAState
 from app.services.geocoding import geocode_location, is_near_coast
@@ -95,6 +96,19 @@ def planner_agent(state: ORCAState) -> ORCAState:
     # for safety over completeness, documented in PROJECT_CONTEXT.md.
     if detect_policy_request(query)["is_policy_request"]:
         return {"location_key": None, "location_data": None, "day_offset": day_offset}
+
+    # A greeting or help-seeking message ("hello", "i need help", "what can
+    # you do") has no location to find either, and hits the exact same
+    # fallback-misfire bug class as the Warninglid/Fishing Creek/India
+    # cases above - "help" survives STOPWORDS and becomes the last
+    # leftover word, which Open-Meteo fuzzy-geocoded to a real village
+    # called "Helpt". Checked AFTER the policy check (so a real policy
+    # question that happens to contain the word "help", e.g. "help me
+    # understand why fishing is banned", still gets answered as a policy
+    # question, not swallowed into a generic onboarding message) but still
+    # BEFORE the fuzzy fallback - see greeting_detection.py.
+    if detect_greeting_or_help(query)["is_greeting_or_help"]:
+        return {"location_key": None, "location_data": None, "day_offset": day_offset, "is_greeting_or_help": True}
 
     phrase = extract_location_phrase(query)
     if phrase:

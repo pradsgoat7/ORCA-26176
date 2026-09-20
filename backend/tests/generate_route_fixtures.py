@@ -30,7 +30,7 @@ from shapely.geometry import Polygon
 import app.services.marine_protected_areas as mpa_module
 from app.api.routes import _build_route_field
 from app.config import BACKEND_DIR, DEFAULT_WIND_SPEED_KMPH, DEFAULT_WAVE_HEIGHT_M, THUNDERSTORM_CODES
-from app.core.risk_engine import calculate_all_metrics, classify_level
+from app.core.risk_engine import apply_safety_override, calculate_all_metrics, classify_level
 from app.core.route_engine import (
     generate_candidate_routes, estimate_travel_time_minutes,
     score_route, select_recommended_route, build_route_explanation,
@@ -89,7 +89,7 @@ def build_route_plan(origin: dict, destination: dict, stakeholder_type: str = "f
         route["travel_time_min"] = estimate_travel_time_minutes(route["distance_km"])
         idx += n
 
-        sample_overall_scores, sample_metrics_lists = [], []
+        sample_overall_scores, sample_metrics_lists, sample_conditions = [], [], []
         for s in samples:
             weather = {"wind_speed_kmph": s["wind_speed_kmph"], "cyclone_alert": False,
                        "cyclone_name": None, "lightning_alert": s["lightning_alert"]}
@@ -97,9 +97,21 @@ def build_route_plan(origin: dict, destination: dict, stakeholder_type: str = "f
             structured = calculate_all_metrics(weather, ocean, stakeholder_type)
             sample_overall_scores.append(structured["overall_score"])
             sample_metrics_lists.append(structured["metrics"])
+            sample_conditions.append((weather, ocean))
 
-        score_route(route, sample_overall_scores, sample_metrics_lists)
-        route["route_risk_level"] = classify_level(route["route_risk_score"])
+        score_route(route, sample_overall_scores, sample_metrics_lists, sample_conditions)
+        pre_override_level = classify_level(route["route_risk_score"])
+        # Mirrors route_planning_agent's own Section 14t override step
+        # exactly, so this fixture generator stays "indistinguishable from
+        # a real API response" per this file's own docstring.
+        override = apply_safety_override(
+            route["route_risk_score"], pre_override_level,
+            route["worst_sample_weather"], route["worst_sample_ocean"],
+        )
+        route["pre_override_level"] = pre_override_level
+        route["route_risk_level"] = override["level"]
+        route["override_fired"] = override["override_fired"]
+        route["override_reasons"] = override["override_reasons"]
 
         waypoint_boundary_distances = [
             distance_to_eez_boundary_km(wp["lat"], wp["lon"]) for wp in route["waypoints"]

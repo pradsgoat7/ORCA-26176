@@ -1,9 +1,121 @@
 * {
-    box-sizing: border-box; 
-    font-family: -apple-system, Segoe UI, Roboto, sans-serif;
+    box-sizing: border-box;
+    font-family: 'Inter', -apple-system, Segoe UI, Roboto, sans-serif;
 }
 
-body { margin: 0; display: flex; height: 100vh; background: #0d1b2a; }
+body { margin: 0; height: 100vh; background: #0d1b2a; display: flex; flex-direction: column; }
+
+/* ---------- Government-style masthead (Section 14r) ----------
+   A slim utility bar above the main nav, and a thin decorative tricolor
+   stripe below it - the structural pattern most Indian government sites
+   (mausam.imd.gov.in, ndma.gov.in) use above their main navigation.
+   Deliberately just a plain 3-color bar, never any emblem/seal or claim
+   of being an official government service - see the utility bar's own
+   text and the About page's disclaimer. */
+#gov-utility-bar {
+  background: #071d33; color: #9fb8cf; font-size: 11px; letter-spacing: 0.2px;
+  padding: 5px 20px; text-align: center; flex-shrink: 0;
+}
+#tricolor-stripe { display: flex; height: 4px; flex-shrink: 0; }
+#tricolor-stripe span { flex: 1; }
+#tricolor-stripe span:nth-child(1) { background: #FF9933; }
+#tricolor-stripe span:nth-child(2) { background: #FFFFFF; }
+#tricolor-stripe span:nth-child(3) { background: #138808; }
+
+/* ---------- Tab navigation shell (Stage 1, restyled Section 14r) ---------- */
+#top-nav { display: flex; align-items: center; background: #0d3b66; flex-shrink: 0; overflow-x: auto; }
+#nav-brand { display: flex; flex-direction: column; padding: 10px 20px 10px 20px; white-space: nowrap; }
+#nav-brand-title { color: white; font-family: 'Merriweather', Georgia, serif; font-weight: 700; font-size: 19px; letter-spacing: 0.5px; line-height: 1.1; }
+#nav-brand-subtitle { color: #9fb8cf; font-size: 10px; letter-spacing: 0.4px; text-transform: uppercase; margin-top: 2px; }
+.tab-btn { background: none; border: none; color: #cfe0f0; padding: 16px 16px; font-size: 12.5px; font-weight: 500; letter-spacing: 0.3px; cursor: pointer; white-space: nowrap; border-bottom: 3px solid transparent; text-transform: uppercase; }
+.tab-btn:hover { color: white; background: rgba(255, 255, 255, 0.08); }
+.tab-btn.active { color: white; border-bottom-color: #FF9933; font-weight: 700; }
+
+#tab-content { flex: 1; min-height: 0; background: white; }
+.tab-panel { display: none; height: 100%; overflow-y: auto; }
+.tab-panel.active { display: block; }
+/* The Ask ORCA tab keeps its original side-by-side chat+map layout (was
+   previously the whole body) - #messages already scrolls internally, so
+   this tab itself doesn't need page-level scrolling like the content
+   tabs below do. Risk Map and Route Planner (Section 14q) use the same
+   side-by-side pattern (a left panel + a full-height map), since they
+   also host the relocated Leaflet map - see js/tabs.js. */
+#tab-ask.active,
+#tab-riskmap.active,
+#tab-routeplanner.active { display: flex; overflow: hidden; }
+#tab-riskmap.active { flex-direction: column; }
+
+.page-content { max-width: 900px; margin: 0 auto; padding: 32px 24px; color: #1a1a1a; }
+.page-content h1 { color: #0d3b66; font-family: 'Merriweather', Georgia, serif; margin-top: 0; }
+.page-content h2 { color: #0d3b66; font-family: 'Merriweather', Georgia, serif; margin-top: 28px; padding-bottom: 8px; border-bottom: 2px solid #eef1f5; }
+.page-content-wide { max-width: 1080px; }
+.home-cta { font-size: 14px; color: #555; }
+
+/* ---------- Home tab (Section 14r redesign): hero band ---------- */
+#home-hero {
+  background: linear-gradient(135deg, #0d3b66 0%, #0a2d4d 100%);
+  padding: 56px 24px 48px; text-align: center;
+}
+.home-hero-inner { max-width: 760px; margin: 0 auto; }
+.home-hero-eyebrow { color: #a9c6e0; font-size: 11px; letter-spacing: 0.8px; text-transform: uppercase; font-weight: 600; margin-bottom: 14px; }
+.home-hero-title { font-family: 'Merriweather', Georgia, serif; color: white; font-size: 52px; font-weight: 700; letter-spacing: 1px; margin: 0; }
+.home-hero-subtitle { color: #dbe8f4; font-size: 17px; margin: 6px 0 20px; font-weight: 500; }
+.home-hero-desc { color: #c3d6e8; font-size: 14.5px; line-height: 1.7; margin: 0; }
+
+.stat-grid { display: flex; flex-wrap: wrap; gap: 14px; margin: 8px 0 32px; position: relative; z-index: 1; }
+.stat-card { flex: 1; min-width: 160px; background: white; border: 1px solid #e2e6ea; border-top: 3px solid #0d3b66; border-radius: 8px; padding: 18px 16px; text-align: center; box-shadow: 0 2px 10px rgba(13,59,102,0.08); }
+.stat-number { font-family: 'Merriweather', Georgia, serif; font-size: 28px; font-weight: 700; color: #0d3b66; }
+.stat-label { font-size: 11.5px; color: #5a6472; margin-top: 6px; line-height: 1.4; }
+
+.home-section-title { display: flex; align-items: center; gap: 10px; }
+.home-section-intro { font-size: 13.5px; color: #666; margin-top: -8px; margin-bottom: 20px; line-height: 1.5; }
+
+.feature-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 8px; }
+.feature-card {
+  display: flex; flex-direction: column; align-items: flex-start; text-align: left;
+  background: #f7f9fb; border: 1px solid #e2e6ea; border-radius: 10px; padding: 20px 18px;
+  cursor: pointer; font-family: inherit; transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+.feature-card:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(13,59,102,0.12); border-color: #0d3b66; }
+.feature-icon { font-size: 26px; margin-bottom: 10px; }
+.feature-title { font-weight: 700; color: #0d3b66; font-size: 14.5px; margin-bottom: 6px; }
+.feature-desc { font-size: 12.5px; color: #5a6472; line-height: 1.5; }
+
+/* ---------- Home tab: multi-agent pipeline diagram ---------- */
+.pipeline-diagram { display: flex; align-items: center; gap: 10px; overflow-x: auto; padding: 20px 4px 28px; }
+.pipeline-stage { display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; }
+.pipeline-stage-parallel { justify-content: center; }
+.pipeline-box {
+  background: white; border: 1px solid #d5dce3; border-radius: 8px; padding: 10px 14px;
+  font-size: 12px; font-weight: 600; color: #333; white-space: nowrap; text-align: center;
+}
+.pipeline-box span { display: block; font-size: 10.5px; font-weight: 400; color: #777; margin-top: 3px; white-space: normal; max-width: 150px; }
+.pipeline-box-planner { border-color: #0d3b66; color: #0d3b66; }
+.pipeline-box-risk { border-color: #d4a300; color: #856404; }
+.pipeline-box-synthesis { border-color: #138808; color: #0e6b06; }
+.pipeline-stage-parallel .pipeline-box { font-weight: 500; font-size: 11.5px; padding: 7px 12px; }
+.pipeline-arrow { font-size: 18px; color: #b7c2cc; flex-shrink: 0; }
+
+/* ---------- About page (Section 14r redesign): status badges + cards ---------- */
+.about-intro { font-size: 14px; line-height: 1.7; color: #333; }
+.badge { display: inline-block; padding: 2px 9px; border-radius: 20px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.3px; white-space: nowrap; }
+.badge-live { background: #d4edda; color: #155724; }
+.badge-live-derived { background: #fff3cd; color: #856404; }
+.badge-mock { background: #f8d7da; color: #721c24; }
+
+.data-sources-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin: 20px 0; }
+.data-source-card { background: #f7f9fb; border: 1px solid #e2e6ea; border-radius: 8px; padding: 14px 16px; }
+.dsc-header { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 6px; }
+.dsc-field { font-size: 13px; font-weight: 700; color: #1a1a1a; }
+.dsc-source { font-size: 12px; color: #5a6472; line-height: 1.5; }
+
+.doc-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin: 16px 0; }
+.doc-card { background: #f7f9fb; border: 1px solid #e2e6ea; border-left: 3px solid #0d3b66; border-radius: 6px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; }
+.doc-card b { color: #1a1a1a; font-size: 13px; }
+.doc-card span { color: #5a6472; font-size: 11.5px; }
+
+.disclaimer { font-size: 12px; color: #888; font-style: italic; margin-top: 24px; }
+
 #chat-panel { width: 420px; display: flex; flex-direction: column; background: #f5f7fa; }
 #header { padding: 16px; background: #0d3b66; color: white; }
 #header h1 { margin: 0; font-size: 18px; }
@@ -52,6 +164,21 @@ body { margin: 0; display: flex; height: 100vh; background: #0d1b2a; }
 .risk-bar-fill { height: 100%; border-radius: 6px; transition: width 0.4s ease; }
 .risk-recommendation { margin-top: 10px; padding-top: 10px; border-top: 1px solid #eee; font-size: 12px; color: #333; }
 .risk-recommendation b { color: #0d3b66; }
+
+/* Hard-safety override banner (Section 14n's override layer, made
+   visible in Section 14s): same colored-callout-at-the-top-of-the-card
+   PATTERN as .route-boundary-banner below, but deliberately reuses the
+   existing risk-badge-critical red palette instead of a new color -
+   unlike a boundary/MPA warning (a categorically DIFFERENT kind of
+   hazard, hence magenta/teal), this banner is explaining a risk-SEVERITY
+   fact (why the score and the level look inconsistent), so it belongs in
+   the same red "this is serious" color language the risk badges already
+   use, not a new one. */
+.risk-override-banner {
+  margin: -14px -14px 12px; padding: 10px 14px; background: #f8d7da;
+  border-bottom: 3px solid #dc3545; color: #721c24; font-size: 12px;
+  font-weight: bold; line-height: 1.4; animation: boundary-pulse 1.6s ease-in-out infinite;
+}
 
 /* Route Optimization Phase 5: route info panel additions (reuses .risk-card as base) */
 .route-alt-item { font-size: 12px; padding: 5px 0; border-top: 1px solid #f0f0f0; }
@@ -102,3 +229,60 @@ body { margin: 0; display: flex; height: 100vh; background: #0d1b2a; }
   border-bottom: 3px solid #00bfa5; color: #00695c; font-size: 12px;
   font-weight: bold; line-height: 1.4; animation: boundary-pulse 1.6s ease-in-out infinite;
 }
+
+/* ---------- Risk Map tab: dashboard summary strip ----------
+   Redesigned in Section 14r from Section 14q's original oversized-digit
+   cards (real user feedback: "looks kiddish") to a compact, professional
+   stat-bar: a small number, a colour-coded LEFT BORDER accent (rather
+   than the number itself being giant and colored), and tighter spacing. */
+#riskmap-summary { display: flex; align-items: center; gap: 18px; padding: 10px 24px; background: #f5f7fa; border-bottom: 1px solid #ddd; flex-shrink: 0; }
+.riskmap-summary-title { font-size: 11px; font-weight: 700; color: #5a6472; text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap; }
+.riskmap-stat-bar { display: flex; gap: 10px; flex-wrap: wrap; }
+.riskmap-stat { display: flex; align-items: baseline; gap: 7px; background: white; border: 1px solid #e2e6ea; border-left: 4px solid #ccc; border-radius: 5px; padding: 6px 14px; }
+.riskmap-stat-count { font-size: 18px; font-weight: 700; line-height: 1; color: #24303d; }
+.riskmap-stat-label { font-size: 11px; color: #5a6472; letter-spacing: 0.2px; }
+.riskmap-stat-low { border-left-color: #28a745; }
+.riskmap-stat-moderate { border-left-color: #d4a300; }
+.riskmap-stat-high { border-left-color: #fd7e14; }
+.riskmap-stat-critical { border-left-color: #dc3545; }
+#riskmap-map-slot { flex: 1; display: flex; min-height: 0; }
+
+/* ---------- Route Planner tab (Section 14q) ---------- */
+#routeplanner-panel { width: 420px; flex-shrink: 0; display: flex; flex-direction: column; background: #f5f7fa; padding: 20px; overflow-y: auto; }
+#routeplanner-panel h2 { margin: 0 0 6px; color: #0d3b66; font-size: 18px; }
+.routeplanner-intro { font-size: 12px; color: #666; margin: 0 0 16px; line-height: 1.4; }
+.routeplanner-label { font-size: 12px; font-weight: bold; color: #0d3b66; margin-bottom: 4px; display: block; }
+#routeplanner-panel input[type="text"], #routeplanner-panel select { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px; font-size: 14px; margin-bottom: 14px; background: white; }
+.routeplanner-to-row { display: flex; gap: 6px; margin-bottom: 14px; }
+.routeplanner-to-row input[type="text"] { margin-bottom: 0; }
+#rp-pfz-btn { flex-shrink: 0; padding: 0 10px; font-size: 11px; border: 1px solid #0d3b66; background: white; color: #0d3b66; border-radius: 6px; cursor: pointer; white-space: nowrap; }
+#rp-pfz-btn:hover { background: #eaf1f8; }
+#rp-submit-btn { padding: 12px; background: #0d3b66; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold; }
+#rp-submit-btn:hover { background: #0a2d4d; }
+#routeplanner-status { font-size: 12px; color: #856404; margin-top: 10px; min-height: 14px; }
+#routeplanner-result { margin-top: 14px; }
+#routeplanner-map-slot { flex: 1; display: flex; min-height: 0; }
+
+/* ---------- Knowledge Base tab (Section 14q) ---------- */
+#kb-input-row { display: flex; gap: 8px; margin: 20px 0 10px; }
+#kb-input-row input[type="text"] { flex: 1; padding: 12px; border: 1px solid #ccc; border-radius: 6px; font-size: 14px; }
+#kb-submit-btn { padding: 12px 20px; background: #0d3b66; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold; }
+#kb-submit-btn:hover { background: #0a2d4d; }
+.kb-examples { font-size: 12px; color: #666; margin-bottom: 20px; }
+.kb-examples button { display: inline-block; background: #f5f7fa; border: 1px solid #ccc; color: #0d3b66; padding: 6px 12px; margin: 0 8px 8px 0; border-radius: 16px; cursor: pointer; font-size: 12px; }
+.kb-examples button:hover { background: #eaf1f8; }
+.kb-loading { font-size: 13px; color: #666; padding: 16px 0; }
+.kb-error { font-size: 13px; color: #721c24; background: #f8d7da; padding: 12px 14px; border-radius: 8px; }
+.kb-no-match { font-size: 13px; color: #856404; background: #fff3cd; padding: 12px 14px; border-radius: 8px; line-height: 1.5; }
+.kb-answer-card { background: white; border: 1px solid #ddd; border-radius: 10px; padding: 18px; }
+.kb-answer-query { font-size: 12px; color: #888; font-style: italic; margin-bottom: 10px; }
+.kb-mode-note { font-size: 12px; color: #856404; background: #fff3cd; padding: 8px 10px; border-radius: 6px; margin-bottom: 10px; }
+.kb-answer-text { font-size: 14px; line-height: 1.6; color: #222; white-space: pre-wrap; }
+.kb-sources-title { font-size: 12px; font-weight: bold; color: #0d3b66; margin: 18px 0 8px; text-transform: uppercase; letter-spacing: 0.3px; }
+.kb-sources-list { list-style: none; margin: 0; padding: 0; }
+.kb-source-item { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12px; padding: 8px 0; border-top: 1px solid #eee; }
+.kb-source-item:first-child { border-top: none; }
+.kb-source-title { font-weight: bold; color: #222; }
+.kb-source-page { color: #666; background: #f5f7fa; padding: 2px 8px; border-radius: 10px; }
+.kb-source-link { color: #0d3b66; text-decoration: none; margin-left: auto; }
+.kb-source-link:hover { text-decoration: underline; }

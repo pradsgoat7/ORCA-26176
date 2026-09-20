@@ -57,6 +57,31 @@ function renderZones(zonesData) {
 
     zoneMarkers.push(circle);
   });
+
+  updateRiskMapSummary(zonesData);
+}
+
+// ---------- Risk Map tab (Section 14q): client-side summary strip ----------
+// Computed from the SAME zonesData already fetched above for the circles -
+// no second network call. Guarded with `if (el)` since these elements only
+// exist on the real page (not in the Node-based mocked-DOM tests), and
+// since this runs on every fetchZones() call regardless of which tab is
+// currently visible - updating a hidden tab's DOM is harmless and means
+// the numbers are already correct the moment a user switches to Risk Map.
+function updateRiskMapSummary(zonesData) {
+  const counts = { LOW: 0, MODERATE: 0, HIGH: 0, CRITICAL: 0 };
+  zonesData.forEach(z => {
+    if (Object.prototype.hasOwnProperty.call(counts, z.overall_level)) counts[z.overall_level]++;
+  });
+
+  const lowEl = document.getElementById('riskmap-count-low');
+  const modEl = document.getElementById('riskmap-count-moderate');
+  const highEl = document.getElementById('riskmap-count-high');
+  const critEl = document.getElementById('riskmap-count-critical');
+  if (lowEl) lowEl.textContent = counts.LOW;
+  if (modEl) modEl.textContent = counts.MODERATE;
+  if (highEl) highEl.textContent = counts.HIGH;
+  if (critEl) critEl.textContent = counts.CRITICAL;
 }
 
 async function fetchZones(stakeholderType) {

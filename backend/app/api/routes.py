@@ -77,6 +77,15 @@ def _build_route_field(result: dict) -> dict:
                 "primary_risk_factor": r["primary_risk_factor"],
                 "is_recommended": r["is_recommended"],
                 "waypoints": r["waypoints"],  # for map polyline rendering
+                # --- Government/hard-safety override layer, per-route
+                # (Section 14t) - additive, mirrors the main risk
+                # response's own pre_override_level/override_fired/
+                # override_reasons fields (Section 14n) exactly. Computed
+                # from the SAME worst waypoint route_risk_score/
+                # route_risk_level already reflect (see route_planning.py).
+                "pre_override_level": r["pre_override_level"],
+                "override_fired": r["override_fired"],
+                "override_reasons": r["override_reasons"],
                 # --- Maritime boundary geofencing (India EEZ) ---
                 "boundary_warning": r["boundary_warning"],
                 "boundary_distance_km": r["boundary_distance_km"],

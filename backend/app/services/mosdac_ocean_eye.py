@@ -18,6 +18,7 @@ forecast-capable, with real timestamps from today through 5 days ahead in
 
 import math
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from typing import Optional
 from xml.etree import ElementTree as ET
@@ -176,3 +177,66 @@ def fetch_current_speed_ms(lat: float, lon: float, day_offset: int = 0) -> Optio
         return None
     speed_cm_s = math.sqrt(east ** 2 + north ** 2)
     return speed_cm_s / 100.0
+
+
+def fetch_all(lat: float, lon: float, day_offset: int = 0) -> dict:
+    """Fetches all four Ocean-Eye fields for one location/day in PARALLEL -
+    see PROJECT_CONTEXT.md Section 14v for the real reliability bug this
+    fixes. Every individual `_query_point()` call already has its own
+    explicit 10s `requests.get()` timeout (present since this module was
+    first written) - the actual problem was that `ocean_agent` used to
+    call fetch_ocean_temperature_c()/fetch_salinity_psu()/
+    fetch_mixed_layer_depth_m()/fetch_current_speed_ms() one after
+    another. fetch_current_speed_ms() alone issues TWO sequential
+    `_query_point()` calls (east + north), so a single ocean_agent
+    invocation could chain up to 6 sequential MOSDAC network calls (1
+    GetCapabilities + temp + salinity + hmxl + east-current +
+    north-current) - each individually timeout-bounded at 10s, but
+    summing to a worst case of ~50-60 seconds if MOSDAC is genuinely slow
+    (not even fully down), comfortably exceeding the frontend's 35s hard
+    timeout despite every single request having an explicit timeout the
+    whole time. Running the point queries CONCURRENTLY via
+    ThreadPoolExecutor (the same established pattern
+    route_planning_agent's waypoint sampling already uses for exactly
+    this kind of "many independent network calls, bound total wall-clock
+    time" problem) bounds the worst case to roughly ONE timeout period
+    instead of the sum of all of them.
+
+    Returns a dict with keys temperature_c/salinity_psu/
+    mixed_layer_depth_m/current_speed_ms, each honestly None on any
+    individual failure - never raises, matching every other function in
+    this module."""
+    time_iso = _pick_time_for_offset(day_offset)
+    if time_iso is None:
+        # No valid timestamp at all (GetCapabilities itself failed/timed
+        # out) - every point query would fail anyway without a TIME value,
+        # so fail fast here rather than firing 5 doomed parallel requests.
+        return {
+            "temperature_c": None,
+            "salinity_psu": None,
+            "mixed_layer_depth_m": None,
+            "current_speed_ms": None,
+        }
+
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        temp_future = executor.submit(_query_point, "temp", lat, lon, time_iso, "-1.0")
+        salinity_future = executor.submit(_query_point, "salinity", lat, lon, time_iso, "-1.0")
+        hmxl_future = executor.submit(_query_point, "hmxl", lat, lon, time_iso)
+        east_future = executor.submit(_query_point, "eastward_ocean_wave_current", lat, lon, time_iso, "-1.0")
+        north_future = executor.submit(_query_point, "northward_ocean_wave_current", lat, lon, time_iso, "-1.0")
+
+        temp = temp_future.result()
+        salinity = salinity_future.result()
+        hmxl_cm = hmxl_future.result()
+        east = east_future.result()
+        north = north_future.result()
+
+    mld = (hmxl_cm / 100.0) if hmxl_cm is not None else None
+    current = (math.sqrt(east ** 2 + north ** 2) / 100.0) if (east is not None and north is not None) else None
+
+    return {
+        "temperature_c": temp,
+        "salinity_psu": salinity,
+        "mixed_layer_depth_m": mld,
+        "current_speed_ms": current,
+    }

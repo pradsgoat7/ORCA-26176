@@ -14,12 +14,7 @@ API (which doesn't offer SST as a daily forecast value anyway).
 
 from app.config import DEFAULT_SST_C, DEFAULT_WAVE_HEIGHT_M
 from app.graph.state import ORCAState
-from app.services.mosdac_ocean_eye import (
-    fetch_current_speed_ms,
-    fetch_mixed_layer_depth_m,
-    fetch_ocean_temperature_c,
-    fetch_salinity_psu,
-)
+from app.services.mosdac_ocean_eye import fetch_all as fetch_mosdac_all
 from app.services.weather_api import fetch_live_marine
 
 
@@ -34,10 +29,17 @@ def ocean_agent(state: ORCAState) -> ORCAState:
     lat, lon = loc["lat"], loc["lon"]
 
     live = fetch_live_marine(lat, lon, day_offset)
-    mosdac_temp = fetch_ocean_temperature_c(lat, lon, day_offset)
-    mosdac_salinity = fetch_salinity_psu(lat, lon, day_offset)
-    mosdac_mld = fetch_mixed_layer_depth_m(lat, lon, day_offset)
-    mosdac_current = fetch_current_speed_ms(lat, lon, day_offset)
+    # fetch_all() runs MOSDAC's 4 fields (5 underlying point queries, since
+    # current speed needs both east+north components) in PARALLEL rather
+    # than one after another - see PROJECT_CONTEXT.md Section 14v for the
+    # real reliability bug this fixes (sequential calls could stack up to
+    # ~50-60s worst case, well past the frontend's 35s hard timeout, even
+    # though every individual request already had its own 10s timeout).
+    mosdac = fetch_mosdac_all(lat, lon, day_offset)
+    mosdac_temp = mosdac["temperature_c"]
+    mosdac_salinity = mosdac["salinity_psu"]
+    mosdac_mld = mosdac["mixed_layer_depth_m"]
+    mosdac_current = mosdac["current_speed_ms"]
 
     if mosdac_temp is not None:
         sst = round(mosdac_temp, 2)

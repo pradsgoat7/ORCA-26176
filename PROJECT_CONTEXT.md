@@ -3109,6 +3109,153 @@ boundary), `frontend/tests/route_fixtures.json` (regenerated),
 
 ---
 
+### 14v. Real reliability bug: sequential MOSDAC calls could stack past the frontend's 35s timeout — DONE (2026-09-24), plus a separate live-endpoint issue found and flagged
+
+**The reported symptom was real**: "Is it safe to fish tomorrow near
+Kochi?" - a query that has worked correctly dozens of times throughout
+this project - hit the frontend's 35s hard timeout. **The stated
+diagnosis hypothesis, checked directly against the code and git history,
+turned out to be FALSE** - both `requests.get()` calls in
+`mosdac_ocean_eye.py` (`_get_valid_times()` and `_query_point()`) already
+had an explicit `timeout=10`, confirmed present in that file's very first
+commit (`git log -p`), never missing. Reporting this precisely rather
+than silently "fixing" a timeout that was already there, per this
+project's standing "verify then trust" discipline (Section 7).
+
+**The REAL root cause, found by tracing the actual call structure**:
+`ocean_agent` (`app/graph/agents/ocean.py`) called
+`fetch_ocean_temperature_c()` / `fetch_salinity_psu()` /
+`fetch_mixed_layer_depth_m()` / `fetch_current_speed_ms()` one after
+another, SEQUENTIALLY - and `fetch_current_speed_ms()` alone issues TWO
+further sequential point queries internally (east + north vector
+components). A single `ocean_agent` invocation could therefore chain up
+to **6 sequential MOSDAC network calls** (1 `GetCapabilities` + temp +
+salinity + hmxl + east-current + north-current), each individually
+timeout-bounded at 10s but summing to a **worst case of ~50-60 seconds**
+- comfortably past the frontend's 35s hard timeout - whenever MOSDAC is
+merely slow (not even fully unresponsive), despite every single request
+already having an explicit timeout the entire time. This exactly matches
+the reported symptom (an occasional hang, not constant, since it only
+manifests when MOSDAC happens to be slow enough that several of the 5-6
+stacked calls approach their individual timeouts).
+
+**Fix: parallelize the independent MOSDAC calls, not just re-confirm a
+timeout that already existed.** New `fetch_all(lat, lon, day_offset)` in
+`mosdac_ocean_eye.py` resolves the shared `time_iso` ONCE via
+`_pick_time_for_offset()` (fails fast, returning all-`None` immediately,
+if even that fails - no point firing 5 doomed parallel requests), then
+runs the 5 underlying `_query_point()` calls (temp, salinity, hmxl,
+east-current, north-current) CONCURRENTLY via `ThreadPoolExecutor` -
+the exact same established pattern `route_planning_agent`'s waypoint
+sampling already uses for this identical class of problem ("many
+independent network calls, bound total wall-clock time to roughly one
+timeout period, not the sum of all of them"). `ocean_agent` now calls
+this single `fetch_all()` instead of the 4 functions sequentially - the
+4 individual functions themselves are unchanged and still directly
+callable (nothing else in the codebase called them besides `ocean_agent`
+and this module's own tests, confirmed via `grep`).
+
+**Testing - proves the fix architecturally, independent of live MOSDAC
+availability**: `backend/tests/test_mosdac_ocean_eye.py` gained a new
+**Test 5**: patches `requests.get` (inside `mosdac_ocean_eye`) to sleep
+2.0 seconds then raise `requests.exceptions.Timeout` on every call (a
+scaled-down, fast-running stand-in for the real 10s timeout, chosen to
+keep the automated suite quick while remaining architecturally
+identical), pre-populates the capabilities cache directly so the test
+exercises exactly the 5-parallel-point-query part of the fix, and
+measures real wall-clock time around `fetch_all()`. **Result: 5
+simulated-slow point queries, each individually "taking" 2.0s, complete
+in a TOTAL of ~2.0s, not ~10s** - direct, empirical proof the queries now
+run in parallel rather than stacking sequentially (a regression back to
+sequential execution would show ~5x the single-call delay, which the
+test explicitly checks for and would fail on). Test 4 (full MOSDAC
+outage) updated to mock the new single `fetch_mosdac_all` call site
+(Section 6d's "patch at the importing module" pattern) instead of the 4
+individual functions separately, and still confirms: no crash,
+`salinity_psu`/`current_speed_ms`/`mixed_layer_depth_m` cleanly `None`,
+`sea_surface_temp_c` still falls back correctly, `wave_height_m`
+completely unaffected (still Open-Meteo only), risk engine still
+completes - the same graceful-degradation guarantee as before, just
+verified against the new call structure.
+
+**A real live query, timed, during actual MOSDAC instability (see below)**:
+`run_query("Is it safe to fish tomorrow near Kochi?")` completed in
+**2.80 seconds** - `wave_height_m` live from Open-Meteo, risk level LOW,
+a complete normal answer - not remotely close to a 35s hang, directly
+satisfying the task's explicit "test a real live query for Kochi right
+now" requirement.
+
+**A SEPARATE, newly-discovered issue, found while testing and flagged
+honestly rather than silently worked around**: MOSDAC's live Ocean-Eye
+WMS endpoint (`SAC_OSF_CIRC_10KM.nc`, the exact URL verified working in
+Section 14f) is, as of this session, returning **HTTP 404** for the same
+`GetCapabilities` query that worked in September - confirmed via direct
+`requests`/`curl` calls made completely outside any of ORCA's own code
+(ruling out a self-inflicted regression), consistent across 3 retries
+(not a transient blip), with the base `mosdac.gov.in` domain itself
+confirmed still up (HTTP 200) and this specific path responding
+differently to different request shapes (400 with no params, 405 on
+`HEAD`, 404 specifically for the WMS query params) - strongly suggesting
+the endpoint's protocol/version contract has changed server-side since
+Section 14f, not a total outage. **This is explicitly OUT OF SCOPE for
+this task** (which is about the timeout/parallelization architecture,
+not re-verifying MOSDAC's current WMS parameter contract from scratch) -
+flagged here precisely as a genuine follow-up item, same "flag rather
+than silently expand scope" discipline as Section 14k. Real, honest
+consequence for THIS session's test run: `test_mosdac_ocean_eye.py`'s
+Tests 1-3 (which require genuinely live MOSDAC values) show 11 failures
+right now, entirely attributable to this external issue, NOT to
+anything changed in this task - Tests 4 and 5, which verify this task's
+actual fix via mocking, are unaffected and pass cleanly (their whole
+point is not depending on live server health). **A real, valuable
+silver lining**: this live outage became an unplanned live demonstration
+that the existing graceful-degradation design already works exactly as
+intended even under genuine external failure - no crash, no hang, honest
+`None` fields, a complete answer in 2.80 seconds.
+
+**One more test-script robustness bug found and fixed while here (not a
+production code bug)**: Test 2 crashed the entire test script outright
+with an unhandled `TypeError: argument of type 'NoneType' is not
+iterable` on `today in times` whenever `times` was `None` (exactly the
+live-outage scenario above) - meaning a single flaky external dependency
+could previously prevent Tests 3, 4, and 5 from running at all. Fixed
+with an explicit `if times:` guard that reports a clean, honest `FAIL`
+instead of crashing, so the rest of the suite (importantly, Tests 4/5,
+which verify this task's actual fix) still runs regardless of live
+MOSDAC's health.
+
+**Full regression suite re-run, zero regressions in anything this task
+touched**: `test_mosdac_ocean_eye.py` itself is 12 passed / 11 failed
+(11 failures fully attributable to the separate live-endpoint issue
+above; the 2 tests that verify THIS task's fix - Test 4 and Test 5 -
+both pass cleanly). Every other backend suite, all of which exercise
+`ocean_agent` as part of their own full-pipeline queries, confirms zero
+collateral impact: `test_phase7.py` (20/20), `test_policy_agent.py`
+(35/35), `test_boundary_geofencing.py` (all passing),
+`test_marine_protected_areas.py` (19/19), `test_route_distance_and_greeting.py`
+(36/36), `test_route_override.py` (20/20). Frontend, entirely unaffected
+(no frontend code touches MOSDAC): `test_tabs_ui.js` (30/30),
+`test_boundary_warning_ui.js` (13/13), `test_mpa_warning_ui.js` (22/22),
+`test_stage2_tabs_ui.js` (24/24), `test_chat_no_location_response.js`
+(5/5), `test_risk_override_banner_ui.js` (11/11),
+`test_route_override_banner_ui.js` (11/11).
+
+**Files changed**: `backend/app/services/mosdac_ocean_eye.py` (new
+`fetch_all()` parallel orchestrator), `backend/app/graph/agents/ocean.py`
+(calls `fetch_all()` instead of 4 sequential functions),
+`backend/tests/test_mosdac_ocean_eye.py` (Test 4 updated for the new call
+site, Test 2 crash-guard fix, new Test 5). No frontend changes - this was
+entirely a backend latency/architecture fix.
+
+**Follow-up recommended, not done here**: re-verify MOSDAC Ocean-Eye's
+current live WMS parameter contract (`SERVICE`/`VERSION`/`REQUEST`
+values, possibly needing `VERSION=1.3.0` or an additional required
+parameter) against real `GetCapabilities`/`GetMetadata` calls, the same
+hands-on verification discipline Section 14f originally used, since the
+exact request that worked in September now returns 404.
+
+---
+
 ## 14. Team / Project Meta
 
 - This is for Smart India Hackathon, already passed the internal college

@@ -38,13 +38,46 @@ def _load_boundary_from_path(path) -> Optional[object]:
     returns their unioned boundary (the edge lines of all polygons
     combined), or None on any failure - missing file, malformed JSON,
     empty feature list. Never raises; callers treat None as 'MPA data
-    unavailable', not an error."""
+    unavailable', not an error.
+
+    Two real data-quality issues confirmed against the actual Protected
+    Planet API response (Section 14u - the real india_mpa.geojson, not
+    the earlier test-only placeholder), handled explicitly rather than
+    letting them silently degrade into 'no MPA data at all':
+
+    1. Not every WDPA record for country=IND&marine=true has real polygon
+       geometry - some (e.g. the Gulf of Mannar Biosphere Reserve, WDPA
+       ID 900665 - a DIFFERENT, larger record than the real Ramsar
+       polygon covering the same area under WDPA ID 555795353) only carry
+       a single Point coordinate. Using a lone point as a stand-in for a
+       10,500 km^2 area's 'edge' would fabricate false precision (a route
+       could pass through the real area while reading as far from its
+       single reference point, or vice versa) - so Point geometries are
+       deliberately EXCLUDED from the boundary union used for proximity
+       distance. This does mean a handful of real WDPA entries contribute
+       no geofencing protection here - an honest, documented limitation
+       of the API's own data completeness, not something ORCA can fix by
+       computing a boundary that doesn't exist in the source data.
+    2. Real-world WDPA polygons are not guaranteed topologically valid -
+       one real fetched polygon ('Thane Creek') is self-intersecting
+       (confirmed via geom.is_valid), which crashes shapely's
+       unary_union() outright if left as-is. Repaired via the standard,
+       well-established shapely idiom for minor self-intersections -
+       buffer(0) - which does not meaningfully change the geometry's
+       shape or extent, only resolves the topology error."""
     if not path.exists():
         return None
     try:
         with open(path, "r") as f:
             geojson = json.load(f)
-        polygons = [shape(feat["geometry"]) for feat in geojson.get("features", [])]
+        polygons = []
+        for feat in geojson.get("features", []):
+            geom = shape(feat["geometry"])
+            if geom.geom_type in ("Point", "MultiPoint"):
+                continue  # no real boundary to check proximity against - see docstring
+            if not geom.is_valid:
+                geom = geom.buffer(0)
+            polygons.append(geom)
         if not polygons:
             return None
         return unary_union(polygons).boundary

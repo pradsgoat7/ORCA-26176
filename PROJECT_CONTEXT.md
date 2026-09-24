@@ -2929,6 +2929,186 @@ gains the override-aware branch), `backend/app/graph/agents/route_planning.py`
 
 ---
 
+### 14u. The Protected Planet API token arrived — real WDPA MPA data is now LIVE, replacing Section 14o's "pending token" placeholder — DONE (2026-09-24)
+
+Section 14o's Stage 1 gap is closed: a real Protected Planet API token
+was provided, `scripts/fetch_india_mpa_data.py` (built but never
+executable before now) was actually run for the first time, and India's
+real Marine Protected Area geofencing is now backed by genuine WDPA data
+instead of a Wikipedia-sourced test rectangle.
+
+**Real bug found and fixed before the fetch would even authenticate**:
+the token the user added to `backend/.env` is named
+`PROTECTED_PLANET_API_TOKEN` (with an underscore between "PROTECTED" and
+"PLANET"), but every existing reference in this codebase - `config.py`,
+`.env.example`, `scripts/fetch_india_mpa_data.py` - used
+`PROTECTEDPLANET_API_TOKEN` (no underscore), a naming mismatch that would
+have silently loaded `None` and failed with a confusing "token not set"
+error despite the token genuinely being present. Renamed the constant
+consistently everywhere to `PROTECTED_PLANET_API_TOKEN` (matching the
+`.env` key exactly, same "Python name equals env var name" pattern
+`GOOGLE_API_KEY` already uses) rather than renaming the `.env` key itself
+- confirmed loaded afterward via `bool(...)`/`len(...)` only, per the
+task's explicit instruction to never print or log the actual value
+anywhere.
+
+**The real fetch, run and verified for the first time**:
+`python3 scripts/fetch_india_mpa_data.py` succeeded - 10 marine protected
+areas returned for `country=IND&marine=true` (fewer than the script's own
+docstring had guessed "roughly 30", since that was an unverified estimate
+written before any real token existed - the real number from Protected
+Planet's own API is 10, now an established fact, not a guess). Verified
+directly, not assumed:
+- **Valid GeoJSON**: a proper `FeatureCollection`, every feature's
+  geometry parses cleanly with shapely, every feature carries real WDPA
+  attribution (`source`, `wdpa_site_id`, `designation`, `iucn_category`
+  properties) traceable back to the actual source record.
+- **Genuine India MPA polygons, with a real, honestly-documented gap**:
+  of the 10 features, 6 have real `Polygon`/`MultiPolygon` boundary
+  geometry (Sundarbans National Park, Chilika Lake, Sundarban Reserve
+  Forest, the Gulf of Mannar Ramsar site, Thillai Vanam, Thane Creek) and
+  4 are `Point`-only records with no boundary at all (the Gulf of Mannar
+  UNESCO-MAB **Biosphere Reserve** - a separate, much larger 10,500 km²
+  WDPA record, WDPA ID 900665, distinct from the smaller real polygon
+  below - plus the Sundarban Biosphere Reserve, Ashtamudi Wetland, and
+  Point Calimere Sanctuary). This is a genuine completeness limit of
+  Protected Planet's own data for these records, not something ORCA can
+  fix by inventing a boundary that doesn't exist in the source.
+- **Gulf of Mannar sanity check - geographically correct, and a nice
+  real-world confirmation of Section 14o's own earlier placeholder work**:
+  a real `MultiPolygon` (WDPA site ID 555795353, `name_english`: "Gulf of
+  Mannar Marine Biosphere Reserve", a 526.7 km² Ramsar-listed site made of
+  5 separate island/reef sub-polygons) sits at real bounds **8.817-9.252°N,
+  78.192-79.250°E** - genuinely along the Tamil Nadu coast between
+  Mandapam and Thoothukudi, exactly where the real Gulf of Mannar Marine
+  National Park chain of islands is. Remarkably close to Section 14o's
+  hand-built Wikipedia-sourced placeholder rectangle (8.75-9.25°N,
+  78.20-79.25°E) - real confirmation that the earlier approximation,
+  built without any real data to check it against, was genuinely
+  reasonable, not a lucky guess that happened to be wrong.
+
+**A second real bug found while wiring this in, and fixed**:
+`marine_protected_areas.py`'s existing `_load_boundary_from_path()`
+(`unary_union(polygons).boundary`) crashed outright against the real
+data with `shapely.errors.GEOSException: TopologyException: side
+location conflict` the moment it was actually run against real WDPA
+geometry - the real "Thane Creek" polygon is self-intersecting
+(`geom.is_valid` is `False`), a genuine, common real-world GIS data
+quality issue that the earlier hand-built test placeholder (a simple
+clean rectangle) could never have surfaced. Fixed with two changes to
+`_load_boundary_from_path()`:
+1. **Point/MultiPoint geometries are now excluded** from the boundary
+   union used for proximity distance - using a single point as a stand-in
+   for a real area's "edge" would fabricate false precision (a route
+   could pass through the real 10,500 km² Biosphere Reserve while reading
+   as "far" from its one reference coordinate, or the reverse). This
+   means those 4 point-only WDPA records contribute no geofencing
+   protection - an honest, documented limitation of what Protected
+   Planet's own API returns, consistent with this project's standing
+   "never fabricate precision that doesn't exist" principle (same spirit
+   as `salinity_psu`/`current_speed_ms`/`mixed_layer_depth_m` honestly
+   returning `None` rather than guessing, Section 14f).
+2. **Invalid polygons are repaired via `buffer(0)`** before unioning -
+   the standard, well-established shapely idiom for resolving minor
+   self-intersection topology errors without meaningfully changing a
+   polygon's shape or extent.
+
+**`marine_protected_areas.py` wired to the real data - no other code
+changes needed**: `distance_to_nearest_mpa_km()`, `check_mpa_proximity()`,
+and every call site in `route_planning.py` were already correctly built
+in Section 14o to just read whatever `_get_mpa_boundary()` returns -
+replacing the "no data" `None` state with a real loaded boundary required
+zero changes beyond the loader fix above. Confirmed the honest-`None`
+path still works correctly too (now via explicit simulation, since real
+data genuinely exists in this checkout - see testing below).
+
+**Tests updated to check against the REAL data, not the placeholder**:
+- **`backend/tests/test_marine_protected_areas.py`, rewritten, 19/19
+  passing** (was 8/8 against the placeholder): gained a new **Test 0**
+  that directly validates the raw fetched `india_mpa.geojson` - valid
+  GeoJSON, real WDPA attribution and site IDs on every feature, a Gulf of
+  Mannar record present with real polygon geometry at the correct
+  real-world coordinates, and an explicit check that its bounding box
+  closely matches Section 14o's original placeholder rectangle (the
+  "confirmation" finding above, made into a permanent regression check,
+  not just a one-off observation). Test 1's destination coordinate was
+  updated from the old placeholder-interior point to `(9.15, 78.95)` - a
+  real point verified (via direct shapely inspection of the actual
+  fetched polygon) to sit inside the real archipelago - producing real
+  `mpa_warning: True` results with distances 0.07-1.36 km, the same order
+  of magnitude as the placeholder's old 0.13-4.18 km range. Tests 2/3
+  (Kochi and the Palk Strait false-positive check) needed no coordinate
+  changes and now correctly show `mpa_warning: False` against REAL data
+  (Kochi ~242 km away; Rameswaram itself ~7.9 km from the real Gulf of
+  Mannar boundary, correctly above the 5.0 km threshold). Test 4 (honest
+  `None` when data is unavailable) now explicitly simulates a missing
+  file via `patch.object(mpa_module, "MPA_PATH", ...)`, since real data
+  genuinely exists in this repo checkout now - still real regression
+  coverage for a fresh checkout that hasn't run the fetch script yet.
+- **`backend/tests/generate_route_fixtures.py`** updated: the
+  `mpa_warning` scenario no longer mocks `_get_mpa_boundary()` with the
+  placeholder polygon - it calls the real `distance_to_nearest_mpa_km()`
+  directly, with its destination coordinate updated to the same real
+  in-polygon point as the test above. `frontend/tests/route_fixtures.json`
+  regenerated for real (all three scenarios reflect real live weather AND
+  real MPA geometry now).
+- **`frontend/tests/test_mpa_warning_ui.js`, 22/22 passing** (unchanged
+  test logic, just consumes the regenerated real fixture - its own
+  comments updated to say so, since it no longer describes a test-only
+  polygon). `frontend/tests/test_boundary_warning_ui.js` re-verified,
+  13/13, against the same regenerated fixture.
+
+**Attribution added to the About & Data Sources page, per Protected
+Planet's terms of use (Section 14o's own licensing research)**: a new
+LIVE data-source card - "World Database on Protected Areas (WDPA), ©
+UNEP-WCMC and IUCN (protectedplanet.net) - fetched live using ORCA's own
+API token, never redistributed by ORCA itself, per Protected Planet's
+terms of use." This was a genuine pre-existing gap (the About page never
+listed MPA - or even EEZ boundary - geofencing as a data source at all,
+Section 14o through 14t), closed now that this data is real and
+attribution is a real license requirement, not merely a nice-to-have.
+Verified rendering correctly in a live browser session, zero console
+errors.
+
+**Full regression suite re-run after ALL changes, zero regressions**:
+- Backend: `test_phase7.py` (20/20), `test_policy_agent.py` (35/35),
+  `test_mosdac_ocean_eye.py` (21/21), `test_boundary_geofencing.py` (all
+  passing), `test_route_distance_and_greeting.py` (36/36),
+  `test_route_override.py` (20/20), plus the rewritten
+  `test_marine_protected_areas.py` (19/19 against real data).
+- Frontend: `test_tabs_ui.js` (30/30), `test_boundary_warning_ui.js`
+  (13/13), `test_mpa_warning_ui.js` (22/22), `test_stage2_tabs_ui.js`
+  (24/24), `test_chat_no_location_response.js` (5/5),
+  `test_risk_override_banner_ui.js` (11/11),
+  `test_route_override_banner_ui.js` (11/11).
+
+**What's still honestly incomplete, stated plainly**: 4 of the 10 real
+WDPA records for India (including the large Gulf of Mannar Biosphere
+Reserve and Sundarban Biosphere Reserve) have no polygon geometry
+available via this API endpoint at all, so they contribute no proximity
+protection - a genuine data-completeness ceiling of Protected Planet's
+own API response for these specific records, not a shortcut taken here.
+`app/data/india_mpa.geojson` remains gitignored and un-committed, exactly
+as Section 14o's licensing research requires - this file now genuinely
+exists and works on this machine, using this developer's own token, and
+every other developer must still run `scripts/fetch_india_mpa_data.py`
+with their own token to get the same real protection locally.
+
+**Files changed**: `backend/app/config.py` (token constant renamed),
+`backend/.env.example` (renamed to match), `backend/scripts/fetch_india_mpa_data.py`
+(renamed to match, now actually run successfully for the first time),
+`backend/app/services/marine_protected_areas.py` (`_load_boundary_from_path()`
+now excludes Point geometries and repairs invalid polygons),
+`backend/tests/test_marine_protected_areas.py` (rewritten for real data),
+`backend/tests/generate_route_fixtures.py` (no longer mocks the MPA
+boundary), `frontend/tests/route_fixtures.json` (regenerated),
+`frontend/tests/test_mpa_warning_ui.js` (comment update only),
+`frontend/index.html` (new WDPA attribution card on the About page).
+**New data (gitignored, not committed)**: `backend/app/data/india_mpa.geojson`
+- the real fetched dataset.
+
+---
+
 ## 14. Team / Project Meta
 
 - This is for Smart India Hackathon, already passed the internal college

@@ -18,9 +18,9 @@
         "label": "Direct",
         "distance_km": 30.6,
         "travel_time_min": 122,
-        "route_risk_score": 44,
-        "route_risk_level": "MODERATE",
-        "primary_risk_factor": "Lightning Risk",
+        "route_risk_score": 50,
+        "route_risk_level": "HIGH",
+        "primary_risk_factor": "Wind Risk",
         "is_recommended": true,
         "waypoints": [
           {
@@ -44,24 +44,22 @@
             "lon": 79.55
           }
         ],
-        "pre_override_level": "MODERATE",
-        "override_fired": true,
-        "override_reasons": [
-          "Lightning activity detected (weather.lightning_alert) - forces at least MODERATE."
-        ],
+        "pre_override_level": "HIGH",
+        "override_fired": false,
+        "override_reasons": [],
         "boundary_warning": true,
         "boundary_distance_km": 1.83,
-        "mpa_warning": null,
-        "mpa_distance_km": null
+        "mpa_warning": false,
+        "mpa_distance_km": 7.88
       },
       {
         "id": "route_b",
         "label": "Route B",
         "distance_km": 32.4,
         "travel_time_min": 130,
-        "route_risk_score": 44,
-        "route_risk_level": "MODERATE",
-        "primary_risk_factor": "Lightning Risk",
+        "route_risk_score": 50,
+        "route_risk_level": "HIGH",
+        "primary_risk_factor": "Wind Risk",
         "is_recommended": false,
         "waypoints": [
           {
@@ -85,24 +83,22 @@
             "lon": 79.55
           }
         ],
-        "pre_override_level": "MODERATE",
-        "override_fired": true,
-        "override_reasons": [
-          "Lightning activity detected (weather.lightning_alert) - forces at least MODERATE."
-        ],
+        "pre_override_level": "HIGH",
+        "override_fired": false,
+        "override_reasons": [],
         "boundary_warning": true,
         "boundary_distance_km": 1.83,
-        "mpa_warning": null,
-        "mpa_distance_km": null
+        "mpa_warning": false,
+        "mpa_distance_km": 7.88
       },
       {
         "id": "route_c",
         "label": "Route C",
         "distance_km": 32.4,
         "travel_time_min": 130,
-        "route_risk_score": 44,
-        "route_risk_level": "MODERATE",
-        "primary_risk_factor": "Lightning Risk",
+        "route_risk_score": 50,
+        "route_risk_level": "HIGH",
+        "primary_risk_factor": "Wind Risk",
         "is_recommended": false,
         "waypoints": [
           {
@@ -126,19 +122,17 @@
             "lon": 79.55
           }
         ],
-        "pre_override_level": "MODERATE",
-        "override_fired": true,
-        "override_reasons": [
-          "Lightning activity detected (weather.lightning_alert) - forces at least MODERATE."
-        ],
+        "pre_override_level": "HIGH",
+        "override_fired": false,
+        "override_reasons": [],
         "boundary_warning": true,
         "boundary_distance_km": 1.83,
-        "mpa_warning": null,
-        "mpa_distance_km": null
+        "mpa_warning": false,
+        "mpa_distance_km": 7.88
       }
     ],
     "recommended_route_id": "route_direct",
-    "explanation": "Direct is both the shortest option and has the lowest marine risk (44/100)."
+    "explanation": "Direct is both the shortest option and has the lowest marine risk (50/100)."
   },
   "no_warning": {
     "is_route": true,
@@ -159,9 +153,9 @@
         "label": "Direct",
         "distance_km": 40.2,
         "travel_time_min": 161,
-        "route_risk_score": 44,
+        "route_risk_score": 33,
         "route_risk_level": "MODERATE",
-        "primary_risk_factor": "Lightning Risk",
+        "primary_risk_factor": "Wind Risk",
         "is_recommended": true,
         "waypoints": [
           {
@@ -186,23 +180,21 @@
           }
         ],
         "pre_override_level": "MODERATE",
-        "override_fired": true,
-        "override_reasons": [
-          "Lightning activity detected (weather.lightning_alert) - forces at least MODERATE."
-        ],
+        "override_fired": false,
+        "override_reasons": [],
         "boundary_warning": false,
         "boundary_distance_km": 238.04,
-        "mpa_warning": null,
-        "mpa_distance_km": null
+        "mpa_warning": false,
+        "mpa_distance_km": 241.65
       },
       {
         "id": "route_b",
         "label": "Route B",
         "distance_km": 42.2,
         "travel_time_min": 169,
-        "route_risk_score": 44,
+        "route_risk_score": 33,
         "route_risk_level": "MODERATE",
-        "primary_risk_factor": "Lightning Risk",
+        "primary_risk_factor": "Wind Risk",
         "is_recommended": false,
         "waypoints": [
           {
@@ -227,23 +219,21 @@
           }
         ],
         "pre_override_level": "MODERATE",
-        "override_fired": true,
-        "override_reasons": [
-          "Lightning activity detected (weather.lightning_alert) - forces at least MODERATE."
-        ],
+        "override_fired": false,
+        "override_reasons": [],
         "boundary_warning": false,
         "boundary_distance_km": 238.04,
-        "mpa_warning": null,
-        "mpa_distance_km": null
+        "mpa_warning": false,
+        "mpa_distance_km": 241.65
       },
       {
         "id": "route_c",
         "label": "Route C",
         "distance_km": 42.2,
         "travel_time_min": 169,
-        "route_risk_score": 44,
+        "route_risk_score": 33,
         "route_risk_level": "MODERATE",
-        "primary_risk_factor": "Lightning Risk",
+        "primary_risk_factor": "Wind Risk",
         "is_recommended": false,
         "waypoints": [
           {
@@ -268,18 +258,16 @@
           }
         ],
         "pre_override_level": "MODERATE",
-        "override_fired": true,
-        "override_reasons": [
-          "Lightning activity detected (weather.lightning_alert) - forces at least MODERATE."
-        ],
+        "override_fired": false,
+        "override_reasons": [],
         "boundary_warning": false,
         "boundary_distance_km": 238.04,
-        "mpa_warning": null,
-        "mpa_distance_km": null
+        "mpa_warning": false,
+        "mpa_distance_km": 241.65
       }
     ],
     "recommended_route_id": "route_direct",
-    "explanation": "Direct is both the shortest option and has the lowest marine risk (44/100)."
+    "explanation": "Direct is both the shortest option and has the lowest marine risk (33/100)."
   },
   "mpa_warning": {
     "is_route": true,
@@ -290,19 +278,19 @@
       "name": "Mandapam"
     },
     "destination": {
-      "lat": 9.0,
-      "lon": 78.8,
-      "name": "Gulf of Mannar test area (Section 14o)"
+      "lat": 9.15,
+      "lon": 78.95,
+      "name": "Gulf of Mannar Marine Biosphere Reserve (real WDPA polygon, Section 14u)"
     },
     "candidate_routes": [
       {
         "id": "route_direct",
         "label": "Direct",
-        "distance_km": 48.9,
-        "travel_time_min": 196,
-        "route_risk_score": 39,
+        "distance_km": 25.6,
+        "travel_time_min": 102,
+        "route_risk_score": 43,
         "route_risk_level": "MODERATE",
-        "primary_risk_factor": "Lightning Risk",
+        "primary_risk_factor": "Wind Risk",
         "is_recommended": true,
         "waypoints": [
           {
@@ -310,79 +298,36 @@
             "lon": 79.1367
           },
           {
-            "lat": 9.2157,
-            "lon": 79.05253
+            "lat": 9.2532,
+            "lon": 79.09002
           },
           {
-            "lat": 9.1438,
-            "lon": 78.96835
+            "lat": 9.2188,
+            "lon": 79.04335
           },
           {
-            "lat": 9.0719,
-            "lon": 78.88417
+            "lat": 9.1844,
+            "lon": 78.99668
           },
           {
-            "lat": 9.0,
-            "lon": 78.8
+            "lat": 9.15,
+            "lon": 78.95
           }
         ],
         "pre_override_level": "MODERATE",
-        "override_fired": true,
-        "override_reasons": [
-          "Lightning activity detected (weather.lightning_alert) - forces at least MODERATE."
-        ],
+        "override_fired": false,
+        "override_reasons": [],
         "boundary_warning": false,
         "boundary_distance_km": 41.08,
         "mpa_warning": true,
-        "mpa_distance_km": 3.81
+        "mpa_distance_km": 0.07
       },
       {
         "id": "route_b",
         "label": "Route B",
-        "distance_km": 51.4,
-        "travel_time_min": 206,
-        "route_risk_score": 35,
-        "route_risk_level": "MODERATE",
-        "primary_risk_factor": "Lightning Risk",
-        "is_recommended": false,
-        "waypoints": [
-          {
-            "lat": 9.2876,
-            "lon": 79.1367
-          },
-          {
-            "lat": 9.25121,
-            "lon": 79.02179
-          },
-          {
-            "lat": 9.19402,
-            "lon": 78.9249
-          },
-          {
-            "lat": 9.10741,
-            "lon": 78.85346
-          },
-          {
-            "lat": 9.0,
-            "lon": 78.8
-          }
-        ],
-        "pre_override_level": "MODERATE",
-        "override_fired": true,
-        "override_reasons": [
-          "Lightning activity detected (weather.lightning_alert) - forces at least MODERATE."
-        ],
-        "boundary_warning": false,
-        "boundary_distance_km": 41.08,
-        "mpa_warning": true,
-        "mpa_distance_km": 0.13
-      },
-      {
-        "id": "route_c",
-        "label": "Route C",
-        "distance_km": 51.4,
-        "travel_time_min": 206,
-        "route_risk_score": 34,
+        "distance_km": 27.7,
+        "travel_time_min": 111,
+        "route_risk_score": 43,
         "route_risk_level": "MODERATE",
         "primary_risk_factor": "Wind Risk",
         "is_recommended": false,
@@ -392,20 +337,20 @@
             "lon": 79.1367
           },
           {
-            "lat": 9.18019,
-            "lon": 79.08326
+            "lat": 9.27884,
+            "lon": 79.07088
           },
           {
-            "lat": 9.09358,
-            "lon": 79.0118
+            "lat": 9.25506,
+            "lon": 79.01628
           },
           {
-            "lat": 9.03639,
-            "lon": 78.91489
+            "lat": 9.21004,
+            "lon": 78.97753
           },
           {
-            "lat": 9.0,
-            "lon": 78.8
+            "lat": 9.15,
+            "lon": 78.95
           }
         ],
         "pre_override_level": "MODERATE",
@@ -414,10 +359,49 @@
         "boundary_warning": false,
         "boundary_distance_km": 41.08,
         "mpa_warning": true,
-        "mpa_distance_km": 4.18
+        "mpa_distance_km": 1.36
+      },
+      {
+        "id": "route_c",
+        "label": "Route C",
+        "distance_km": 27.7,
+        "travel_time_min": 111,
+        "route_risk_score": 47,
+        "route_risk_level": "MODERATE",
+        "primary_risk_factor": "Wind Risk",
+        "is_recommended": false,
+        "waypoints": [
+          {
+            "lat": 9.2876,
+            "lon": 79.1367
+          },
+          {
+            "lat": 9.22756,
+            "lon": 79.10917
+          },
+          {
+            "lat": 9.18254,
+            "lon": 79.07042
+          },
+          {
+            "lat": 9.15876,
+            "lon": 79.01582
+          },
+          {
+            "lat": 9.15,
+            "lon": 78.95
+          }
+        ],
+        "pre_override_level": "MODERATE",
+        "override_fired": false,
+        "override_reasons": [],
+        "boundary_warning": false,
+        "boundary_distance_km": 41.08,
+        "mpa_warning": true,
+        "mpa_distance_km": 0.27
       }
     ],
     "recommended_route_id": "route_direct",
-    "explanation": "Direct is both the shortest option and has the lowest marine risk (39/100)."
+    "explanation": "Direct is both the shortest option and has the lowest marine risk (43/100)."
   }
 }

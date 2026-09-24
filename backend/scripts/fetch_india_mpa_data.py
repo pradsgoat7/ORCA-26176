@@ -18,7 +18,7 @@ SETUP:
 1. Request a free API token at https://api.protectedplanet.net/request
    (approval is manual, not instant - budget a day or two, same as
    MOSDAC's original account process, Section 13a).
-2. Add PROTECTEDPLANET_API_TOKEN=<your token> to backend/.env
+2. Add PROTECTED_PLANET_API_TOKEN=<your token> to backend/.env
 3. From backend/: python3 scripts/fetch_india_mpa_data.py
    This writes app/data/india_mpa.geojson (gitignored - never commit it).
 
@@ -43,7 +43,7 @@ import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # allow running as `python3 scripts/...` from backend/
 
-from app.config import DATA_DIR, PROTECTEDPLANET_API_TOKEN  # noqa: E402
+from app.config import DATA_DIR, PROTECTED_PLANET_API_TOKEN  # noqa: E402
 
 OUTPUT_PATH = DATA_DIR / "india_mpa.geojson"
 API_URL = "https://api.protectedplanet.net/v4/protected_areas/search"
@@ -62,7 +62,7 @@ def fetch_all_pages() -> list:
         resp = requests.get(
             API_URL,
             params={
-                "token": PROTECTEDPLANET_API_TOKEN,
+                "token": PROTECTED_PLANET_API_TOKEN,
                 "country": "IND",
                 "marine": "true",
                 "with_geometry": "true",
@@ -115,8 +115,8 @@ def build_geojson(areas: list) -> dict:
 
 
 def main():
-    if not PROTECTEDPLANET_API_TOKEN:
-        print("ERROR: PROTECTEDPLANET_API_TOKEN not set in backend/.env")
+    if not PROTECTED_PLANET_API_TOKEN:
+        print("ERROR: PROTECTED_PLANET_API_TOKEN not set in backend/.env")
         print("Request a token at https://api.protectedplanet.net/request, then re-run this script.")
         return
 
